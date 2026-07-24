@@ -1,0 +1,16 @@
+---
+description: Guardrails for landing visual assets, brand galleries, and carousel verification
+globs: "{components/landing/**/*.tsx,app/globals.css,lib/catalog-brands.ts,public/brands_img/**,public/images/**}"
+alwaysApply: false
+---
+
+# Visual Assets And Carousels
+
+When changing landing images, brand galleries, or carousel CSS:
+
+- Verify actual files on disk, not only `Glob` output. Use a direct existence/path check for every image referenced from code.
+- Match carousel framing to the source assets. Most `public/brands_img/**` photos are 4:3, so prefer `aspect-ratio: 4 / 3` and `object-fit: contain` unless the user explicitly asks for crop.
+- Test desktop and smartphone widths for any carousel layout change. For mobile, confirm slides have real visible dimensions and are not compressed by CSS Grid, e.g. avoid shrinkable `minmax(0, ...)` for horizontal scroll columns.
+- After changing Next image dimensions or global CSS, do not trust an already-running dev server if the DOM/CSS still shows old values. Treat this as stale Turbopack/HMR state; verify with `npm run build` or a fresh preview/dev restart.
+- For duplicate or removed gallery photos, update both the data whitelist and the asset file when the user asks to delete the photo.
+

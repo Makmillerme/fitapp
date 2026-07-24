@@ -1,0 +1,15 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Baseline model to verify migrations and DB connectivity.
+model HealthCheck {
+  id        String   @id @default(cuid())
+  note      String   @default("ok")
+  createdAt DateTime @default(now())
+}
