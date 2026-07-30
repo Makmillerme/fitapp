@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
   useTransition,
-  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import Link from "next/link";
 import { Camera, MoreVertical, Pencil, Settings } from "lucide-react";
@@ -67,11 +67,23 @@ export function ProfilePhotoHero({
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
+  const chromeInnerRef = useRef<HTMLDivElement>(null);
   const activateBtnRef = useRef<HTMLButtonElement>(null);
-  const scrollEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const indexRef = useRef(0);
+  const swipeRef = useRef<{
+    pointerId: number;
+    x0: number;
+    t0: number;
+    lastX: number;
+    lastT: number;
+    startIndex: number;
+  } | null>(null);
   const [index, setIndex] = useState(0);
+  /** Finger follow offset while swiping (one page max). */
+  const [dragPx, setDragPx] = useState(0);
+  const [swiping, setSwiping] = useState(false);
   const [pending, startTransition] = useTransition();
+  /** Natural chrome height (no pads) — keeps collapsed spacing tight under the circle. */
   const [chromeH, setChromeH] = useState(122);
   /** Local measure so first paint isn't stuck with trackWidth=0 from parent. */
   const [localTrackW, setLocalTrackW] = useState(() =>
@@ -84,7 +96,9 @@ export function ProfilePhotoHero({
     photos[Math.min(index, Math.max(0, photos.length - 1))] ?? primary;
   const carouselActive = p > 0.98 && !isDragging && photos.length > 1;
   const interactive = !isDragging;
-  const fgMix = Math.round((1 - p) * 100);
+  // Continuous with photo progress (no Math.round stepping / no CSS transition lag).
+  const fgMix = (1 - p) * 100;
+  const alignSpacer = 1 - p;
 
   const tw = trackWidth > 0 ? trackWidth : localTrackW;
   const fullSize =
@@ -93,19 +107,13 @@ export function ProfilePhotoHero({
   const photoSize = lerp(COLLAPSED_PHOTO, fullSize, p);
   const photoRadius = lerp(photoSize / 2, 0, p);
   const photoLeft = tw > 0 ? (tw - photoSize) / 2 : 0;
+  // Collapsed: compact (circle + gap + chrome). Expanded: fullSize square.
+  // Chrome always bottom-pinned — grows with container, not with photoSize.
   const collapsedH = COLLAPSED_PHOTO + PHOTO_GAP + chromeH;
   const containerH = lerp(collapsedH, Math.max(collapsedH, fullSize), p);
 
-  // Chrome rides continuously with progress: under circle → bottom of square.
-  // Only `top` lerps (no left/width jump). Styles morph separately.
   const chromePadTop = lerp(0, 16, p);
   const chromePadBottom = lerp(0, 12, p);
-  const chromeTopCollapsed = COLLAPSED_PHOTO + PHOTO_GAP;
-  const chromeTopExpanded = Math.max(
-    chromeTopCollapsed,
-    photoSize - chromeH - chromePadTop - chromePadBottom,
-  );
-  const chromeTop = lerp(chromeTopCollapsed, chromeTopExpanded, p);
   const scrimOpacity = Math.min(1, p * 1.2);
   const scrimBlur = lerp(0, 18, p);
 
@@ -118,7 +126,7 @@ export function ProfilePhotoHero({
     if (!root) return;
     const measure = () => {
       const w = root.clientWidth;
-      if (w > 0) setLocalTrackW(w);
+      if (w > 0) setLocalTrackW((prev) => (prev === w ? prev : w));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -127,7 +135,7 @@ export function ProfilePhotoHero({
   }, []);
 
   useLayoutEffect(() => {
-    const el = measureRef.current;
+    const el = chromeInnerRef.current;
     if (!el) return;
     const measure = () => {
       const h = el.offsetHeight;
@@ -140,7 +148,16 @@ export function ProfilePhotoHero({
   }, [displayName, uploading]);
 
   useEffect(() => {
-    if (p < 0.5) setIndex(0);
+    indexRef.current = index;
+  }, [index]);
+
+  useEffect(() => {
+    if (p < 0.5) {
+      setIndex(0);
+      setDragPx(0);
+      setSwiping(false);
+      swipeRef.current = null;
+    }
   }, [p]);
 
   useEffect(() => {
@@ -150,28 +167,71 @@ export function ProfilePhotoHero({
   }, [p, isDragging]);
 
   useEffect(() => {
-    if (!carouselActive || !scrollerRef.current) return;
-    const el = scrollerRef.current;
-    el.scrollTo({ left: index * el.clientWidth, behavior: "auto" });
-  }, [photos.length, carouselActive]); // eslint-disable-line react-hooks/exhaustive-deps -- sync on open/count only
+    if (!carouselActive) {
+      setDragPx(0);
+      setSwiping(false);
+      swipeRef.current = null;
+    }
+  }, [carouselActive]);
 
-  const handleScroll = () => {
-    const el = scrollerRef.current;
-    if (!el || el.clientWidth === 0) return;
-    const next = Math.round(el.scrollLeft / el.clientWidth);
-    setIndex(Math.max(0, Math.min(next, photos.length - 1)));
+  const slideW = () => scrollerRef.current?.clientWidth ?? tw;
 
-    // Soft settle after free-scroll (no snap-mandatory hard switch).
-    if (scrollEndTimer.current) clearTimeout(scrollEndTimer.current);
-    scrollEndTimer.current = setTimeout(() => {
-      const node = scrollerRef.current;
-      if (!node || node.clientWidth === 0) return;
-      const page = Math.round(node.scrollLeft / node.clientWidth);
-      const target = page * node.clientWidth;
-      if (Math.abs(node.scrollLeft - target) > 1) {
-        node.scrollTo({ left: target, behavior: "smooth" });
-      }
-    }, 90);
+  const goToPage = (page: number) => {
+    const next = Math.max(0, Math.min(page, photos.length - 1));
+    indexRef.current = next;
+    setIndex(next);
+    setDragPx(0);
+    setSwiping(false);
+  };
+
+  const onCarouselPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!carouselActive || photos.length < 2) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    swipeRef.current = {
+      pointerId: e.pointerId,
+      x0: e.clientX,
+      t0: e.timeStamp,
+      lastX: e.clientX,
+      lastT: e.timeStamp,
+      startIndex: indexRef.current,
+    };
+    setSwiping(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onCarouselPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const s = swipeRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    const w = slideW();
+    if (w <= 0) return;
+    const raw = e.clientX - s.x0;
+    // One swipe can travel at most one page; lock edges at ends.
+    const min = s.startIndex <= 0 ? 0 : -w;
+    const max = s.startIndex >= photos.length - 1 ? 0 : w;
+    const clamped = Math.max(min, Math.min(max, raw));
+    s.lastX = e.clientX;
+    s.lastT = e.timeStamp;
+    setDragPx(clamped);
+  };
+
+  const onCarouselPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const s = swipeRef.current;
+    if (!s || s.pointerId !== e.pointerId) return;
+    const w = slideW();
+    const dx = e.clientX - s.x0;
+    const dt = Math.max(1, e.timeStamp - s.t0);
+    const vAvg = dx / dt;
+    const threshold = Math.max(48, w * 0.18);
+    let next = s.startIndex;
+    if (dx <= -threshold || vAvg < -0.5) next = s.startIndex + 1;
+    else if (dx >= threshold || vAvg > 0.5) next = s.startIndex - 1;
+    swipeRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    goToPage(next);
   };
 
   const onActivate = () => {
@@ -188,10 +248,7 @@ export function ProfilePhotoHero({
       try {
         const result = await setPrimaryContactPhoto(contactId, current.id);
         onPhotosChange(result.photos, result.photoUrl);
-        setIndex(0);
-        requestAnimationFrame(() => {
-          scrollerRef.current?.scrollTo({ left: 0, behavior: "smooth" });
-        });
+        goToPage(0);
         toast.success("Основне фото оновлено");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Помилка");
@@ -210,13 +267,7 @@ export function ProfilePhotoHero({
           toast.success("Фото видалено");
           return;
         }
-        const nextIndex = Math.min(index, result.photos.length - 1);
-        setIndex(nextIndex);
-        requestAnimationFrame(() => {
-          const el = scrollerRef.current;
-          if (!el) return;
-          el.scrollTo({ left: nextIndex * el.clientWidth, behavior: "auto" });
-        });
+        goToPage(Math.min(index, result.photos.length - 1));
         toast.success("Фото видалено");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Помилка");
@@ -230,92 +281,100 @@ export function ProfilePhotoHero({
   const btnFg = `color-mix(in srgb, var(--foreground) ${fgMix}%, white)`;
   const btnBorder = `color-mix(in srgb, var(--border) ${fgMix}%, transparent)`;
 
-  const chromeContent = (forMeasure: boolean): ReactNode => (
+  const btnShadow = `0 1px 2px rgb(0 0 0 / ${0.06 * (1 - p)})`;
+  const btnSurfaceClass =
+    "h-11 min-w-0 flex-col justify-center gap-1 rounded-2xl border px-2 text-xs transition-none sm:h-10 sm:text-sm";
+
+  const chromeContent = (
     <div className="space-y-3 px-3">
-      <div className={cn(!forMeasure && p >= 0.45 && "w-full")}>
-        <div
-          className={cn(
-            "inline-flex items-center gap-2",
-            !forMeasure && p >= 0.45 && "w-full",
-          )}
-        >
-          <h2
-            className="truncate font-semibold"
-            style={{
-              fontSize: "clamp(28px, 6.5vw, 42px)",
-              color: forMeasure ? undefined : nameColor,
-            }}
-          >
-            {displayName}
-          </h2>
-          {!forMeasure ? (
+      {/* Spacers lerp center → left in sync with photo progress (no p≥0.45 snap). */}
+      <div className="w-full">
+        <div className="flex w-full items-center">
+          <div
+            aria-hidden
+            className="min-w-0 shrink"
+            style={{ flexGrow: alignSpacer, flexBasis: 0 }}
+          />
+          <div className="inline-flex min-w-0 max-w-full items-center gap-2">
+            <h2
+              className="truncate font-semibold"
+              style={{
+                fontSize: "clamp(28px, 6.5vw, 42px)",
+                color: nameColor,
+              }}
+            >
+              {displayName}
+            </h2>
             <button
               type="button"
               onClick={onEditName}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-none hover:bg-white/10"
               aria-label="Редагувати імʼя"
               style={{
-                opacity: Math.max(0, 1 - p * 1.6),
                 color: mutedColor,
-                pointerEvents: p > 0.35 || !interactive ? "none" : "auto",
+                pointerEvents: interactive ? "auto" : "none",
               }}
             >
               <Pencil className="size-4" />
             </button>
-          ) : (
-            <span className="inline-flex size-8 shrink-0" />
-          )}
+          </div>
+          <div
+            aria-hidden
+            className="min-w-0 shrink"
+            style={{ flexGrow: alignSpacer, flexBasis: 0 }}
+          />
         </div>
-        <p
-          className="text-base"
-          style={{ color: forMeasure ? undefined : mutedColor }}
-        >
-          у мережі
-        </p>
+        <div className="flex w-full">
+          <div
+            aria-hidden
+            className="min-w-0 shrink"
+            style={{ flexGrow: alignSpacer, flexBasis: 0 }}
+          />
+          <p
+            className="min-w-0 text-base"
+            style={{ color: mutedColor }}
+          >
+            у мережі
+          </p>
+          <div
+            aria-hidden
+            className="min-w-0 shrink"
+            style={{ flexGrow: alignSpacer, flexBasis: 0 }}
+          />
+        </div>
       </div>
 
       <div className="grid w-full grid-cols-2 gap-2">
         <Button
           type="button"
           variant="outline"
-          disabled={forMeasure || uploading || pending || !interactive}
-          onClick={forMeasure ? undefined : onSetPhoto}
-          tabIndex={forMeasure ? -1 : undefined}
-          className="h-11 min-w-0 flex-col justify-center gap-1 rounded-2xl border px-2 text-xs sm:h-10 sm:text-sm"
-          style={
-            forMeasure
-              ? undefined
-              : {
-                  backgroundColor: btnBg,
-                  color: btnFg,
-                  borderColor: btnBorder,
-                  boxShadow: p < 0.35 ? "0 1px 2px rgb(0 0 0 / 0.06)" : "none",
-                }
-          }
+          disabled={uploading || pending}
+          onClick={onSetPhoto}
+          className={cn(btnSurfaceClass, !interactive && "pointer-events-none")}
+          style={{
+            backgroundColor: btnBg,
+            color: btnFg,
+            borderColor: btnBorder,
+            boxShadow: btnShadow,
+          }}
         >
           <Camera className="size-4" />
           <span>{uploading ? "Завантаження…" : "Встановити фото"}</span>
         </Button>
 
         <Link
-          href={forMeasure ? "#" : "/settings"}
-          tabIndex={forMeasure ? -1 : undefined}
-          onClick={forMeasure ? (e) => e.preventDefault() : undefined}
+          href="/settings"
           className={cn(
             buttonVariants({ variant: "outline" }),
-            "h-11 min-w-0 flex-col justify-center gap-1 rounded-2xl border px-2 text-xs sm:h-10 sm:text-sm",
-            (!interactive || forMeasure) && "pointer-events-none",
+            btnSurfaceClass,
+            !interactive && "pointer-events-none",
           )}
-          style={
-            forMeasure
-              ? undefined
-              : {
-                  backgroundColor: btnBg,
-                  color: btnFg,
-                  borderColor: btnBorder,
-                  boxShadow: p < 0.35 ? "0 1px 2px rgb(0 0 0 / 0.06)" : "none",
-                }
-          }
+          style={{
+            backgroundColor: btnBg,
+            color: btnFg,
+            borderColor: btnBorder,
+            boxShadow: btnShadow,
+          }}
         >
           <Settings className="size-4" />
           <span>Налаштування</span>
@@ -334,15 +393,6 @@ export function ProfilePhotoHero({
         touchAction: isDragging ? "none" : "pan-y",
       }}
     >
-      {/* Hidden collapsed chrome measurer — always up to date, no locked-effect */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute left-0 top-0 w-full"
-        style={{ visibility: "hidden", zIndex: -1 }}
-      >
-        <div ref={measureRef}>{chromeContent(true)}</div>
-      </div>
-
       {/* Photo layer — grows from circle to square behind chrome */}
       <div
         className="absolute top-0 overflow-hidden bg-muted"
@@ -360,34 +410,50 @@ export function ProfilePhotoHero({
         {photos.length > 0 ? (
           <div
             ref={scrollerRef}
-            onScroll={handleScroll}
-            className={cn(
-              "flex h-full w-full",
-              carouselActive
-                ? "overflow-x-auto overflow-y-hidden overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                : "overflow-hidden",
-            )}
+            className="h-full w-full overflow-hidden"
             style={{
-              WebkitOverflowScrolling: carouselActive ? "touch" : undefined,
-              scrollBehavior: carouselActive ? "smooth" : undefined,
               pointerEvents: carouselActive ? "auto" : "none",
               touchAction: carouselActive ? "pan-x" : undefined,
             }}
+            onPointerDown={onCarouselPointerDown}
+            onPointerMove={onCarouselPointerMove}
+            onPointerUp={onCarouselPointerUp}
+            onPointerCancel={onCarouselPointerUp}
           >
-            {(carouselActive ? photos : [primary!]).map((photo) => (
-              <div
-                key={photo.id}
-                className="h-full w-full shrink-0"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo.url}
-                  alt="Фото профілю"
-                  className="h-full w-full object-cover select-none"
-                  draggable={false}
-                />
-              </div>
-            ))}
+            <div
+              className="flex h-full will-change-transform"
+              style={{
+                width: carouselActive
+                  ? `${photos.length * 100}%`
+                  : "100%",
+                transform: carouselActive
+                  ? `translate3d(calc(${(-index * 100) / photos.length}% + ${dragPx}px), 0, 0)`
+                  : undefined,
+                transition: swiping
+                  ? "none"
+                  : "transform 280ms cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            >
+              {(carouselActive ? photos : [primary!]).map((photo) => (
+                <div
+                  key={photo.id}
+                  className="h-full shrink-0"
+                  style={{
+                    width: carouselActive
+                      ? `${100 / photos.length}%`
+                      : "100%",
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt="Фото профілю"
+                    className="h-full w-full object-cover select-none"
+                    draggable={false}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <span className="flex size-full items-center justify-center bg-primary/10 text-2xl font-bold text-primary">
@@ -453,12 +519,10 @@ export function ProfilePhotoHero({
         </div>
       </div>
 
-      {/* Chrome absolute — avoids margin-collapse with absolute photo (in-flow marginTop overlapped name). */}
+      {/* Chrome bottom-pinned: under circle when collapsed, overlay when square. */}
       <div
-        className="absolute inset-x-0 z-30"
+        className="absolute inset-x-0 bottom-0 z-30"
         style={{
-          top: chromeTop,
-          textAlign: p < 0.35 ? "center" : "left",
           pointerEvents:
             interactive && (p < 0.08 || p > 0.92) ? "auto" : "none",
           paddingTop: chromePadTop,
@@ -482,7 +546,9 @@ export function ProfilePhotoHero({
               "linear-gradient(to top, black 0%, black 35%, transparent 100%)",
           }}
         />
-        <div className="relative z-[1]">{chromeContent(false)}</div>
+        <div ref={chromeInnerRef} className="relative z-[1]">
+          {chromeContent}
+        </div>
       </div>
     </div>
   );
