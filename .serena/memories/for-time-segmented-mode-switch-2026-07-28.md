@@ -1,0 +1,1 @@
+Improved For Time config UX: replaced ambiguous mode toggle button with explicit segmented control using shadcn Tabs (`Без ліміту` / `Ліміт часу`). Kept cap value card below; it is enabled only in cap mode. File: src/components/apps/smart-timer/for-time-view.tsx. Typecheck passes.

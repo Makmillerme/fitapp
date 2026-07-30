@@ -1,0 +1,1 @@
+Fixed Next.js "use server" export error: moved `MAX_CONTACT_PHOTOS` and `ContactPhotoDto` from `src/lib/actions/profile-photos.ts` into shared `src/lib/profile/photo-constants.ts`. Server actions file now exports only async functions. ProfileView imports the constant from photo-constants.

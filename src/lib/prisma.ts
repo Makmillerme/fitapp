@@ -12,6 +12,11 @@ function createPrismaClient() {
     globalForPrisma.pool ??
     new Pool({
       connectionString: process.env.DATABASE_URL,
+      // Remote PgBouncer (6432): keep client pool small to avoid query_wait_timeout.
+      max: process.env.NODE_ENV === "development" ? 3 : 8,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 15_000,
+      allowExitOnIdle: true,
     });
 
   if (process.env.NODE_ENV !== "production") {

@@ -1,0 +1,1 @@
+Updated Tabata config UI to be more compact and cleaner: replaced vertical rows with 3 compact cards in one grid (Rounds / Work / Rest). Added rounds selection via DurationPicker using new mode `count` with presets 1..10 plus custom manual input. DurationPicker now supports modes: seconds, minutes, count. Typecheck passed.

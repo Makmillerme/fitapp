@@ -1,0 +1,1 @@
+Centered timer run headers (AMRAP/TABATA/For Time/EMOM) using absolute title centering (`absolute left-1/2 -translate-x-1/2`) with back button as z-10 in a relative header. This avoids scrollbar or layout asymmetry shifting title on wider screens.

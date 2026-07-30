@@ -7,9 +7,276 @@ datasource db {
   provider = "postgresql"
 }
 
-/// Baseline model to verify migrations and DB connectivity.
-model HealthCheck {
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  DEBT
+  PAUSED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum ContactMessageSender {
+  ADMIN
+  CONTACT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model User {
+  id         String   @id @default(cuid())
+  telegramId BigInt   @unique
+  firstName  String
+  lastName   String?
+  username   String?
+  photoUrl   String?
+  phone      String?
+  role       UserRole @default(USER)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  programs              Program[]
+  exercises             Exercise[]
+  appointmentsAsAdmin   Appointment[]         @relation("AppointmentAdmin")
+  workoutLogsAsAdmin    WorkoutLog[]          @relation("WorkoutLogAdmin")
+  chatThreads           ChatThread[]
+  contacts              Contact[]
+  conversationsAsAdmin  ContactConversation[] @relation("ConversationAdmin")
+
+  @@index([role])
+}
+
+model Contact {
+  id             String     @id @default(cuid())
+  trainerId      String
+  firstName      String
+  lastName       String?
+  phone          String?
+  telegramId     BigInt?
+  photoUrl       String?
+  isClient       Boolean    @default(false)
+  status         UserStatus @default(ACTIVE)
+  sessionBalance Int        @default(0)
+  goal           String?
+  notes          String?
+  about          String?
+  tag            String?    @unique
+  dateOfBirth    DateTime?
+  heightCm       Float?
+  weightKg       Float?
+  gender         Gender?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  trainer        User                  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  appointments   Appointment[]
+  workoutLogs    WorkoutLog[]
+  conversations  ContactConversation[]
+  measurements   ContactMeasurement[]
+  photos         ContactPhoto[]
+
+  @@unique([trainerId, phone])
+  @@index([trainerId, isClient])
+  @@index([trainerId])
+}
+
+model Program {
+  id            String   @id @default(cuid())
+  trainerId     String
+  name          String
+  description   String?
+  category      String?
+  durationWeeks Int?
+  tags          String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  trainer      User              @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  exercises    ProgramExercise[]
+  appointments Appointment[]
+
+  @@index([trainerId])
+}
+
+model Exercise {
+  id          String   @id @default(cuid())
+  trainerId   String
+  name        String
+  description String?
+  muscleGroup String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trainer  User              @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  programs ProgramExercise[]
+  logs     WorkoutLog[]
+
+  @@index([trainerId])
+}
+
+model ProgramExercise {
+  id         String  @id @default(cuid())
+  programId  String
+  exerciseId String
+  order      Int     @default(0)
+  sets       Int     @default(3)
+  reps       String  @default("8-12")
+  notes      String?
+
+  program  Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, exerciseId, order])
+  @@index([programId])
+  @@index([exerciseId])
+}
+
+model Appointment {
+  id        String            @id @default(cuid())
+  trainerId String
+  clientId  String
+  programId String?
+  startAt   DateTime
+  endAt     DateTime
+  location  String?
+  status    AppointmentStatus @default(SCHEDULED)
+  notes     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  trainer     User         @relation("AppointmentAdmin", fields: [trainerId], references: [id], onDelete: Cascade)
+  client      Contact      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  program     Program?     @relation(fields: [programId], references: [id], onDelete: SetNull)
+  workoutLogs WorkoutLog[]
+
+  @@index([trainerId, startAt])
+  @@index([clientId])
+  @@index([status])
+}
+
+model WorkoutLog {
+  id            String   @id @default(cuid())
+  appointmentId String?
+  clientId      String
+  trainerId     String
+  exerciseId    String?
+  weight        Float?
+  sets          Int?
+  reps          Int?
+  notes         String?
+  rawInput      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  client      Contact      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainer     User         @relation("WorkoutLogAdmin", fields: [trainerId], references: [id], onDelete: Cascade)
+  exercise    Exercise?    @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, createdAt])
+  @@index([trainerId])
+  @@index([appointmentId])
+}
+
+model ChatThread {
   id        String   @id @default(cuid())
-  note      String   @default("ok")
+  trainerId String
+  title     String?
+  model     String   @default("gpt-4o-mini")
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  trainer  User          @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([trainerId, updatedAt])
+}
+
+model ChatMessage {
+  id        String          @id @default(cuid())
+  threadId  String
+  role      ChatMessageRole
+  content   String
+  createdAt DateTime        @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+model ContactConversation {
+  id        String   @id @default(cuid())
+  trainerId String
+  contactId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trainer  User             @relation("ConversationAdmin", fields: [trainerId], references: [id], onDelete: Cascade)
+  contact  Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages ContactMessage[]
+
+  @@unique([trainerId, contactId])
+  @@index([trainerId, updatedAt])
+  @@index([contactId])
+}
+
+model ContactMessage {
+  id             String               @id @default(cuid())
+  conversationId String
+  senderRole     ContactMessageSender
+  body           String
+  createdAt      DateTime             @default(now())
+
+  conversation ContactConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model ContactMeasurement {
+  id         String   @id @default(cuid())
+  contactId  String
+  measuredAt DateTime @default(now())
+  neckCm     Float?
+  chestCm    Float?
+  waistCm    Float?
+  hipsCm     Float?
+  bicepsCm   Float?
+  thighCm    Float?
+  calfCm     Float?
+  heightCm   Float?
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, measuredAt])
+}
+
+model ContactPhoto {
+  id        String   @id @default(cuid())
+  contactId String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, sortOrder])
+  @@index([contactId, sortOrder])
 }

@@ -1,0 +1,1 @@
+Fixed EMOM header centering on wide screens by replacing `flex justify-between` with stable 3-column grid (`grid-cols-[2.5rem_1fr_2.5rem]`) and `justify-self-center` on title. Prevents scrollbar/layout asymmetry from shifting title off-center.
