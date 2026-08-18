@@ -12,6 +12,11 @@ import {
   PHONE_INVALID_MESSAGE,
   CONTACT_PHONE_EXISTS_MESSAGE,
 } from "@/lib/phone";
+import {
+  assertNotSelfContact,
+  assertPhoneNotTrainer,
+  excludeSelfContactWhere,
+} from "@/lib/contacts/self-contact";
 
 const createClientSchema = z.object({
   firstName: z.string().trim().min(1, "Вкажіть імʼя"),
@@ -60,6 +65,7 @@ export async function listClients(opts?: {
     where: {
       trainerId: admin.id,
       isClient: true,
+      ...excludeSelfContactWhere(admin),
       ...(status ? { status } : {}),
       ...(query
         ? {
@@ -77,7 +83,11 @@ export async function listClients(opts?: {
 
 export async function getClientCounts() {
   const admin = await requireRole("ADMIN");
-  const base = { trainerId: admin.id, isClient: true as const };
+  const base = {
+    trainerId: admin.id,
+    isClient: true as const,
+    ...excludeSelfContactWhere(admin),
+  };
   const [active, debt, paused] = await Promise.all([
     prisma.contact.count({ where: { ...base, status: "ACTIVE" } }),
     prisma.contact.count({ where: { ...base, status: "DEBT" } }),
@@ -89,15 +99,16 @@ export async function getClientCounts() {
 export async function getClientsPageData() {
   const admin = await requireRole("ADMIN");
   const trainerId = admin.id;
-  const base = { trainerId, isClient: true as const };
+  const notSelf = excludeSelfContactWhere(admin);
+  const base = { trainerId, isClient: true as const, ...notSelf };
 
   const [clients, contacts, active, debt, paused] = await Promise.all([
     prisma.contact.findMany({
-      where: { trainerId, isClient: true },
+      where: { trainerId, isClient: true, ...notSelf },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
     prisma.contact.findMany({
-      where: { trainerId },
+      where: { trainerId, ...notSelf },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
     prisma.contact.count({ where: { ...base, status: "ACTIVE" } }),
@@ -116,7 +127,12 @@ export async function getClientDetail(clientId: string) {
   const admin = await requireRole("ADMIN");
 
   const client = await prisma.contact.findFirst({
-    where: { id: clientId, trainerId: admin.id, isClient: true },
+    where: {
+      id: clientId,
+      trainerId: admin.id,
+      isClient: true,
+      ...excludeSelfContactWhere(admin),
+    },
   });
   if (!client) return null;
 
@@ -184,6 +200,7 @@ export async function createClient(input: z.input<typeof createClientSchema>) {
     : null;
   const phone = parsePhone(parsed.data.phone);
   const phoneKey = phoneDigits(phone);
+  assertPhoneNotTrainer(admin, phone);
 
   const existing = await prisma.contact.findMany({
     where: { trainerId: admin.id, phone: { not: null } },
@@ -232,6 +249,7 @@ export async function promoteContactToClient(contactId: string) {
     where: { id: contactId, trainerId: admin.id },
   });
   if (!contact) throw new Error("Контакт не знайдено");
+  assertNotSelfContact(admin, contact);
   if (contact.isClient) throw new Error("Цей контакт уже є клієнтом");
 
   const updated = await prisma.contact.update({

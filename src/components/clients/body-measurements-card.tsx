@@ -1,3 +1,9 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 type Measurements = {
   measuredAt?: string | null;
   neckCm?: number | null;
@@ -10,45 +16,57 @@ type Measurements = {
   heightCm?: number | null;
 };
 
+type BodyKey = Exclude<keyof Measurements, "measuredAt" | "heightCm">;
+
 type Props = {
   measurements: Measurements;
+  weightKg?: number | null;
 };
 
-type MeasureKey = Exclude<keyof Measurements, "measuredAt">;
+type Zone = { cx: number; cy: number; rx: number; ry: number };
 
-const ZONE_POINTS: Record<MeasureKey, { x: number; y: number; rx: number; ry: number }> = {
-  neckCm: { x: 512, y: 210, rx: 44, ry: 26 },
-  chestCm: { x: 512, y: 310, rx: 100, ry: 60 },
-  waistCm: { x: 512, y: 455, rx: 92, ry: 52 },
-  hipsCm: { x: 512, y: 545, rx: 106, ry: 52 },
-  bicepsCm: { x: 650, y: 360, rx: 48, ry: 40 },
-  thighCm: { x: 555, y: 690, rx: 60, ry: 58 },
-  calfCm: { x: 560, y: 840, rx: 42, ry: 54 },
-  heightCm: { x: 870, y: 510, rx: 0, ry: 0 },
+const ZONES: Record<BodyKey, Zone> = {
+  neckCm: { cx: 512, cy: 210, rx: 48, ry: 30 },
+  chestCm: { cx: 512, cy: 318, rx: 108, ry: 68 },
+  waistCm: { cx: 512, cy: 455, rx: 96, ry: 48 },
+  hipsCm: { cx: 512, cy: 548, rx: 110, ry: 50 },
+  bicepsCm: { cx: 648, cy: 355, rx: 52, ry: 44 },
+  thighCm: { cx: 558, cy: 692, rx: 64, ry: 62 },
+  calfCm: { cx: 560, cy: 842, rx: 46, ry: 56 },
 };
 
-const LABELS: Array<{
-  key: MeasureKey;
-  label: string;
-  anchor: { x: number; y: number };
-  target: { x: number; y: number };
-}> = [
-  { key: "neckCm", label: "Шия", anchor: { x: 110, y: 170 }, target: { x: 475, y: 210 } },
-  { key: "chestCm", label: "Груди", anchor: { x: 86, y: 280 }, target: { x: 420, y: 300 } },
-  { key: "waistCm", label: "Талія", anchor: { x: 86, y: 430 }, target: { x: 422, y: 450 } },
-  { key: "hipsCm", label: "Таз", anchor: { x: 98, y: 540 }, target: { x: 408, y: 545 } },
-  { key: "bicepsCm", label: "Біцепс", anchor: { x: 760, y: 240 }, target: { x: 625, y: 340 } },
-  { key: "thighCm", label: "Стегно", anchor: { x: 770, y: 620 }, target: { x: 575, y: 680 } },
-  { key: "calfCm", label: "Ікра", anchor: { x: 780, y: 785 }, target: { x: 575, y: 830 } },
-  { key: "heightCm", label: "Зріст", anchor: { x: 865, y: 100 }, target: { x: 865, y: 920 } },
+const PARTS: Array<{ key: BodyKey; label: string }> = [
+  { key: "neckCm", label: "Шия" },
+  { key: "chestCm", label: "Груди" },
+  { key: "waistCm", label: "Талія" },
+  { key: "hipsCm", label: "Таз" },
+  { key: "bicepsCm", label: "Біцепс" },
+  { key: "thighCm", label: "Стегно" },
+  { key: "calfCm", label: "Ікра" },
 ];
 
-const fmtCm = (value?: number | null) => (value == null ? "—" : `${value.toFixed(1)} см`);
+const HEAD_Y = 82;
+const FEET_Y = 955;
+const RULER_X = 86;
 
-export function BodyMeasurementsCard({ measurements }: Props) {
+const fmtCm = (value?: number | null) =>
+  value == null ? "\u2014" : `${Number.isInteger(value) ? value : value.toFixed(1)} см`;
+
+const fmtKg = (value?: number | null) =>
+  value == null ? "\u2014" : `${Number.isInteger(value) ? value : value.toFixed(1)} кг`;
+
+export function BodyMeasurementsCard({
+  measurements,
+  weightKg = null,
+}: Props) {
+  const [selected, setSelected] = useState<BodyKey | null>(null);
   const measuredAt = measurements.measuredAt
     ? new Date(measurements.measuredAt).toLocaleDateString("uk-UA")
     : null;
+
+  const toggle = (key: BodyKey) => {
+    setSelected((prev) => (prev === key ? null : key));
+  };
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
@@ -59,79 +77,203 @@ export function BodyMeasurementsCard({ measurements }: Props) {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl bg-muted/45 p-3">
-        <svg viewBox="0 0 1024 1024" className="h-auto w-full" role="img" aria-label="Схема замірів тіла">
-          <defs>
-            <marker id="arrowHead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-              <path d="M 0 0 L 8 4 L 0 8 z" fill="currentColor" />
-            </marker>
-          </defs>
+      <div className="flex items-stretch gap-1 rounded-2xl bg-muted/40 p-2 sm:gap-2 sm:p-3">
+        <svg
+          viewBox="0 0 760 1088"
+          className="min-w-0 flex-1"
+          role="img"
+          aria-label="Схема замірів тіла"
+        >
 
-          <image href="/skeleton.svg" x="0" y="0" width="1024" height="1024" opacity="0.32" />
 
-          {(Object.keys(ZONE_POINTS) as MeasureKey[])
-            .filter((key) => key !== "heightCm")
-            .map((key) => {
-              const zone = ZONE_POINTS[key];
-              const active = measurements[key] != null;
+          <line
+            x1={RULER_X}
+            y1={HEAD_Y}
+            x2={RULER_X}
+            y2={FEET_Y}
+            stroke="currentColor"
+            className="text-primary"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          <line
+            x1={RULER_X - 10}
+            y1={HEAD_Y}
+            x2={RULER_X + 10}
+            y2={HEAD_Y}
+            stroke="currentColor"
+            className="text-primary"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          <line
+            x1={RULER_X - 10}
+            y1={FEET_Y}
+            x2={RULER_X + 10}
+            y2={FEET_Y}
+            stroke="currentColor"
+            className="text-primary"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+          <rect
+            x={RULER_X - 36}
+            y={(HEAD_Y + FEET_Y) / 2 - 22}
+            width="72"
+            height="44"
+            rx="12"
+            className="fill-card"
+          />
+          <text
+            x={RULER_X}
+            y={(HEAD_Y + FEET_Y) / 2 - 2}
+            textAnchor="middle"
+            className="fill-primary"
+            fontSize="15"
+            fontWeight="700"
+          >
+            {fmtCm(measurements.heightCm).replace(" см", "")}
+          </text>
+          <text
+            x={RULER_X}
+            y={(HEAD_Y + FEET_Y) / 2 + 16}
+            textAnchor="middle"
+            className="fill-muted-foreground"
+            fontSize="11"
+            fontWeight="600"
+          >
+            см
+          </text>
+
+          <g transform="translate(-80, 0)">
+            <defs>
+              {PARTS.map(({ key }) => {
+                const z = ZONES[key];
+                return (
+                  <clipPath id={`anthro-zone-${key}`} key={key}>
+                    <ellipse cx={z.cx} cy={z.cy} rx={z.rx} ry={z.ry} />
+                  </clipPath>
+                );
+              })}
+            </defs>
+            <image
+              href="/skeleton.svg"
+              x="0"
+              y="0"
+              width="1024"
+              height="1024"
+              opacity="0.28"
+            />
+
+            {selected ? (
+              <g
+                transform={`translate(${ZONES[selected].cx} ${ZONES[selected].cy}) scale(1.12) translate(${-ZONES[selected].cx} ${-ZONES[selected].cy})`}
+              >
+                <image
+                  href="/skeleton.svg"
+                  x="0"
+                  y="0"
+                  width="1024"
+                  height="1024"
+                  clipPath={`url(#anthro-zone-${selected})`}
+                  opacity="1"
+                />
+                <ellipse
+                  cx={ZONES[selected].cx}
+                  cy={ZONES[selected].cy}
+                  rx={ZONES[selected].rx}
+                  ry={ZONES[selected].ry}
+                  fill="color-mix(in oklch, var(--primary) 28%, transparent)"
+                  stroke="var(--primary)"
+                  strokeWidth="3"
+                />
+              </g>
+            ) : null}
+
+            {PARTS.map(({ key, label }) => {
+              const z = ZONES[key];
               return (
                 <ellipse
                   key={key}
-                  cx={zone.x}
-                  cy={zone.y}
-                  rx={zone.rx}
-                  ry={zone.ry}
-                  fill={active ? "rgba(235, 0, 41, 0.22)" : "rgba(148, 163, 184, 0.13)"}
-                  stroke={active ? "rgba(235, 0, 41, 0.55)" : "rgba(148, 163, 184, 0.2)"}
-                  strokeWidth={2}
-                />
+                  cx={z.cx}
+                  cy={z.cy}
+                  rx={z.rx + 8}
+                  ry={z.ry + 8}
+                  fill="transparent"
+                  className="cursor-pointer"
+                  onClick={() => toggle(key)}
+                >
+                  <title>{label}</title>
+                </ellipse>
               );
             })}
 
-          <line
-            x1="900"
-            y1="130"
-            x2="900"
-            y2="915"
-            stroke="rgba(235, 0, 41, 0.9)"
-            strokeWidth="3"
-            markerStart="url(#arrowHead)"
-            markerEnd="url(#arrowHead)"
-          />
+            <ellipse
+              cx="512"
+              cy="1018"
+              rx="148"
+              ry="18"
+              fill="color-mix(in oklch, var(--foreground) 14%, transparent)"
+            />
+            <ellipse
+              cx="512"
+              cy="1012"
+              rx="138"
+              ry="14"
+              fill="color-mix(in oklch, var(--card) 92%, var(--foreground))"
+              stroke="color-mix(in oklch, var(--border) 80%, transparent)"
+              strokeWidth="2"
+            />
+            <text
+              x="512"
+              y="1017"
+              textAnchor="middle"
+              className="fill-foreground"
+              fontSize="18"
+              fontWeight="700"
+            >
+              {fmtKg(weightKg)}
+            </text>
+          </g>
+        </svg>
 
-          {LABELS.map((item) => {
-            const active = measurements[item.key] != null;
+        <div className="flex w-[4.75rem] shrink-0 flex-col justify-between py-1 sm:w-24">
+          {PARTS.map(({ key, label }) => {
+            const active = selected === key;
+            const hasValue = measurements[key] != null;
             return (
-              <g key={item.key}>
-                <line
-                  x1={item.anchor.x}
-                  y1={item.anchor.y}
-                  x2={item.target.x}
-                  y2={item.target.y}
-                  stroke={active ? "rgba(235, 0, 41, 0.8)" : "rgba(100, 116, 139, 0.55)"}
-                  strokeWidth={2}
-                />
-                <text
-                  x={item.anchor.x}
-                  y={item.anchor.y - 10}
-                  fontSize="24"
-                  fontWeight="700"
-                  fill={active ? "rgba(235,0,41,0.95)" : "rgba(51,65,85,0.85)"}
+              <Button
+                key={key}
+                type="button"
+                variant="ghost"
+                aria-pressed={active}
+                onClick={() => toggle(key)}
+                className={cn(
+                  "h-auto min-h-0 flex-col items-start gap-0 rounded-xl px-1.5 py-1 text-left whitespace-normal",
+                  active && "bg-primary/10",
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]",
+                    active && "text-primary",
+                  )}
                 >
-                  {item.label}
-                </text>
-                <text
-                  x={item.anchor.x}
-                  y={item.anchor.y + 18}
-                  fontSize="22"
-                  fill={active ? "rgba(15,23,42,0.95)" : "rgba(71,85,105,0.85)"}
+                  {label}
+                </span>
+                <span
+                  className={cn(
+                    "font-semibold text-foreground transition-[font-size] duration-200",
+                    active ? "text-base text-primary sm:text-lg" : "text-xs sm:text-sm",
+                    !hasValue && !active && "text-muted-foreground",
+                  )}
                 >
-                  {fmtCm(measurements[item.key])}
-                </text>
-              </g>
+                  {fmtCm(measurements[key])}
+                </span>
+              </Button>
             );
           })}
-        </svg>
+        </div>
       </div>
     </div>
   );

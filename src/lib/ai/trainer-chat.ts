@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ChatTurn } from "@/lib/ai/openai";
+import { excludeSelfContactWhere } from "@/lib/contacts/self-contact";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -16,8 +17,16 @@ export type TrainerChatContext = {
 export async function buildTrainerContext(
   trainerId: string,
 ): Promise<TrainerChatContext> {
+  const trainer = await prisma.user.findUnique({
+    where: { id: trainerId },
+    select: { telegramId: true, phone: true },
+  });
   const clients = await prisma.contact.findMany({
-    where: { trainerId, isClient: true },
+    where: {
+      trainerId,
+      isClient: true,
+      ...(trainer ? excludeSelfContactWhere(trainer) : {}),
+    },
     select: { firstName: true, lastName: true, status: true },
     orderBy: { firstName: "asc" },
     take: 20,

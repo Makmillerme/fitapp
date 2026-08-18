@@ -58,6 +58,12 @@ export async function getOrCreateMyContactProfile() {
         isClient: false,
       },
     });
+  } else if (profileContact.isClient) {
+    // Repair accidental self-as-client from before CRM self-exclusion.
+    profileContact = await prisma.contact.update({
+      where: { id: profileContact.id },
+      data: { isClient: false },
+    });
   }
 
   return profileContact;

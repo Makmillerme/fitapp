@@ -252,6 +252,7 @@ export function ClientDetailView({ client, appointments, logs, latestMeasurement
             </div>
 
             <BodyMeasurementsCard
+              weightKg={client.weightKg}
               measurements={{
                 measuredAt: latestMeasurement?.measuredAt ?? null,
                 neckCm: latestMeasurement?.neckCm ?? null,

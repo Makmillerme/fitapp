@@ -11,6 +11,11 @@ import {
   PHONE_INVALID_MESSAGE,
   CONTACT_PHONE_EXISTS_MESSAGE,
 } from "@/lib/phone";
+import {
+  assertNotSelfContact,
+  assertPhoneNotTrainer,
+  excludeSelfContactWhere,
+} from "@/lib/contacts/self-contact";
 
 export type ContactListItem = {
   id: string;
@@ -48,19 +53,24 @@ const createContactSchema = z.object({
     .refine(isValidPhone, PHONE_INVALID_MESSAGE),
 });
 
-async function assertOwnedContact(contactId: string, trainerId: string) {
+async function assertOwnedContact(
+  contactId: string,
+  trainer: { id: string; telegramId: bigint; phone: string | null },
+) {
   const contact = await prisma.contact.findFirst({
-    where: { id: contactId, trainerId },
+    where: { id: contactId, trainerId: trainer.id },
     select: {
       id: true,
       firstName: true,
       lastName: true,
       photoUrl: true,
       phone: true,
+      telegramId: true,
       isClient: true,
     },
   });
   if (!contact) throw new Error("Контакт не знайдено");
+  assertNotSelfContact(trainer, contact);
   return contact;
 }
 
@@ -71,6 +81,7 @@ export async function listContacts(opts?: { query?: string }) {
   return prisma.contact.findMany({
     where: {
       trainerId: admin.id,
+      ...excludeSelfContactWhere(admin),
       ...(query
         ? {
             OR: [
@@ -98,6 +109,7 @@ export async function createContact(input: z.input<typeof createContactSchema>) 
     : null;
   const phone = parsePhone(parsed.data.phone);
   const phoneKey = phoneDigits(phone);
+  assertPhoneNotTrainer(admin, phone);
 
   const existing = await prisma.contact.findMany({
     where: { trainerId: admin.id, phone: { not: null } },
@@ -142,7 +154,10 @@ export async function listContactConversations(): Promise<
   const admin = await requireRole("ADMIN");
 
   const conversations = await prisma.contactConversation.findMany({
-    where: { trainerId: admin.id },
+    where: {
+      trainerId: admin.id,
+      contact: excludeSelfContactWhere(admin),
+    },
     orderBy: { updatedAt: "desc" },
     include: {
       contact: {
@@ -176,7 +191,7 @@ export async function listContactMessages(
   contactId: string,
 ): Promise<ContactChatMessage[]> {
   const admin = await requireRole("ADMIN");
-  await assertOwnedContact(contactId, admin.id);
+  await assertOwnedContact(contactId, admin);
 
   const conversation = await prisma.contactConversation.findUnique({
     where: {
@@ -215,7 +230,7 @@ export async function sendContactMessage(input: z.input<typeof sendSchema>) {
   }
 
   const { contactId, body } = parsed.data;
-  await assertOwnedContact(contactId, admin.id);
+  await assertOwnedContact(contactId, admin);
 
   const conversation = await prisma.contactConversation.upsert({
     where: {
