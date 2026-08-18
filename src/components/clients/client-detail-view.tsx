@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { uk } from "date-fns/locale";
-import { AlertCircle, Dumbbell, NotebookPen } from "lucide-react";
+import { AlertCircle, Dumbbell, Target } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BodyMeasurementsCard } from "@/components/clients/body-measurements-card";
+import type { MeasurementSavePatch } from "@/components/clients/measurement-edit-dialog";
+import { SessionBalanceCard } from "@/components/clients/session-balance-card";
 import { cn } from "@/lib/utils";
 
 const HISTORY_UI_PREVIEW = [
@@ -46,7 +49,15 @@ type Props = {
     gender: "MALE" | "FEMALE" | "OTHER" | null;
     sessionBalance: number;
     status: string;
+    telegramId: string | null;
+    tag: string | null;
   };
+  onClientPatched?: (patch: {
+    id: string;
+    sessionBalance: number;
+    status: string;
+  }) => void;
+  onMeasurementsSaved?: (patch: MeasurementSavePatch) => void;
   appointments: Array<{
     id: string;
     startAt: string;
@@ -68,6 +79,8 @@ type Props = {
     waistCm: number | null;
     hipsCm: number | null;
     bicepsCm: number | null;
+    shoulderCm: number | null;
+    forearmCm: number | null;
     thighCm: number | null;
     calfCm: number | null;
     heightCm: number | null;
@@ -79,6 +92,31 @@ const GENDER_LABELS = {
   FEMALE: "Жінка",
   OTHER: "Інше",
 } as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "Активний",
+  DEBT: "Борг",
+  PAUSED: "Пауза",
+};
+
+function formatDob(dateOfBirthIso: string | null): string {
+  if (!dateOfBirthIso) return "—";
+  const birthDate = new Date(dateOfBirthIso);
+  if (Number.isNaN(birthDate.getTime())) return "—";
+  return format(birthDate, "d MMMM yyyy", { locale: uk });
+}
+
+function formatTelegram(telegramId: string | null, tag: string | null): string {
+  const handle = tag?.trim();
+  if (handle) return handle.startsWith("@") ? handle : `@${handle}`;
+  if (!telegramId) return "Не підключено";
+  try {
+    if (BigInt(telegramId) >= BigInt("1000000000000")) return "Не підключено";
+  } catch {
+    return "Не підключено";
+  }
+  return "Підключено";
+}
 
 function calculateAge(dateOfBirthIso: string | null): string {
   if (!dateOfBirthIso) return "—";
@@ -93,24 +131,25 @@ function calculateAge(dateOfBirthIso: string | null): string {
   return age >= 0 ? `${age}` : "—";
 }
 
-function fmtCm(value: number | null | undefined): string {
-  return value == null ? "—" : `${value} см`;
-}
-
-function fmtKg(value: number | null | undefined): string {
-  return value == null ? "—" : `${value} кг`;
-}
-
-export function ClientDetailView({ client, appointments, logs, latestMeasurement }: Props) {
+export function ClientDetailView({
+  client,
+  appointments,
+  logs,
+  latestMeasurement,
+  onClientPatched,
+  onMeasurementsSaved,
+}: Props) {
   const name = `${client.firstName} ${client.lastName ?? ""}`.trim();
   const initial = client.firstName.charAt(0).toUpperCase();
+  const telegramLabel = formatTelegram(client.telegramId, client.tag);
 
-  const metaLine = [
-    client.goal ? `Ціль: ${client.goal}` : null,
-    client.status === "DEBT" ? "Борг" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const [status, setStatus] = useState(client.status);
+
+  useEffect(() => {
+    setStatus(client.status);
+  }, [client.id, client.status]);
+
+  const statusLabel = STATUS_LABELS[status] ?? status;
 
   const historyItems = useMemo<HistoryTimelineItem[]>(() => {
     if (appointments.length > 0) {
@@ -162,9 +201,19 @@ export function ClientDetailView({ client, appointments, logs, latestMeasurement
             <h1 className="truncate text-xl font-bold tracking-tight text-foreground">
               {name}
             </h1>
-            <p className="mt-0.5 truncate text-sm text-muted-foreground">
-              {metaLine || client.phone || "Без додаткових даних"}
-            </p>
+            <div className="mt-0.5">
+              <Badge
+                variant={status === "PAUSED" ? "outline" : "secondary"}
+                className={cn(
+                  status === "ACTIVE" &&
+                    "border-transparent bg-emerald-600 text-white",
+                  status === "DEBT" &&
+                    "border-transparent bg-primary text-primary-foreground",
+                )}
+              >
+                {statusLabel}
+              </Badge>
+            </div>
           </div>
         </div>
 
@@ -203,69 +252,52 @@ export function ClientDetailView({ client, appointments, logs, latestMeasurement
             value="overview"
             className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
           >
-            <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <AlertCircle className="size-3.5" />
-                </span>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-primary">
-                  Протипоказання
-                </p>
-              </div>
-              <p className="text-sm font-semibold leading-relaxed text-foreground">
-                {client.notes?.trim()
-                  ? client.notes
-                  : "Поки не додано. Заповнимо в наступному кроці атрибутів."}
-              </p>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3 shadow-card">
+              <p className="mb-1 text-sm font-bold text-foreground">Базова інформація</p>
+              <dl className="divide-y divide-border">
+                {[
+                  { label: "Телефон", value: client.phone ?? "—" },
+                  {
+                    label: "Telegram",
+                    value: telegramLabel,
+                    valueClass:
+                      telegramLabel === "Не підключено"
+                        ? "text-muted-foreground"
+                        : undefined,
+                  },
+                  { label: "Дата народження", value: formatDob(client.dateOfBirth) },
+                  { label: "Вік", value: calculateAge(client.dateOfBirth) },
+                  {
+                    label: "Гендер",
+                    value: client.gender ? GENDER_LABELS[client.gender] : "—",
+                  },
+                ].map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-baseline justify-between gap-3 py-2.5"
+                  >
+                    <dt className="shrink-0 text-xs text-muted-foreground">{row.label}</dt>
+                    <dd
+                      className={cn(
+                        "min-w-0 truncate text-right text-sm font-medium text-foreground",
+                        row.valueClass,
+                      )}
+                    >
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-              <p className="mb-3 text-sm font-bold text-foreground">Базова інформація</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Імʼя / Прізвище</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{name || "—"}</p>
-                </div>
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Телефон</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{client.phone ?? "—"}</p>
-                </div>
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Вік</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{calculateAge(client.dateOfBirth)}</p>
-                </div>
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Ріст</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{fmtCm(client.heightCm)}</p>
-                </div>
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Вага</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">{fmtKg(client.weightKg)}</p>
-                </div>
-                <div className="rounded-xl bg-muted/60 p-3">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Гендер</p>
-                  <p className="mt-1 text-sm font-semibold text-foreground">
-                    {client.gender ? GENDER_LABELS[client.gender] : "—"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <BodyMeasurementsCard
-              weightKg={client.weightKg}
-              measurements={{
-                measuredAt: latestMeasurement?.measuredAt ?? null,
-                neckCm: latestMeasurement?.neckCm ?? null,
-                chestCm: latestMeasurement?.chestCm ?? null,
-                waistCm: latestMeasurement?.waistCm ?? null,
-                hipsCm: latestMeasurement?.hipsCm ?? null,
-                bicepsCm: latestMeasurement?.bicepsCm ?? null,
-                thighCm: latestMeasurement?.thighCm ?? null,
-                calfCm: latestMeasurement?.calfCm ?? null,
-                heightCm:
-                  latestMeasurement?.heightCm ??
-                  client.heightCm ??
-                  null,
+            <SessionBalanceCard
+              clientId={client.id}
+              sessionBalance={client.sessionBalance}
+              status={client.status}
+              onOptimistic={(patch) => setStatus(patch.status)}
+              onPatched={(patch) => {
+                setStatus(patch.status);
+                onClientPatched?.(patch);
               }}
             />
           </TabsContent>
@@ -274,6 +306,27 @@ export function ClientDetailView({ client, appointments, logs, latestMeasurement
             value="progress"
             className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
           >
+            <BodyMeasurementsCard
+              clientId={client.id}
+              weightKg={client.weightKg}
+              onSaved={onMeasurementsSaved}
+              measurements={{
+                measuredAt: latestMeasurement?.measuredAt ?? null,
+                neckCm: latestMeasurement?.neckCm ?? null,
+                chestCm: latestMeasurement?.chestCm ?? null,
+                waistCm: latestMeasurement?.waistCm ?? null,
+                hipsCm: latestMeasurement?.hipsCm ?? null,
+                bicepsCm: latestMeasurement?.bicepsCm ?? null,
+                shoulderCm: latestMeasurement?.shoulderCm ?? null,
+                forearmCm: latestMeasurement?.forearmCm ?? null,
+                thighCm: latestMeasurement?.thighCm ?? null,
+                calfCm: latestMeasurement?.calfCm ?? null,
+                heightCm:
+                  latestMeasurement?.heightCm ??
+                  client.heightCm ??
+                  null,
+              }}
+            />
             <p className="text-sm font-bold text-foreground">Силові (1RM максимум)</p>
             {strengthPreview.length === 0 ? (
               <div className="rounded-2xl border border-border bg-muted/60 p-5 text-sm text-muted-foreground">
@@ -345,23 +398,38 @@ export function ClientDetailView({ client, appointments, logs, latestMeasurement
 
           <TabsContent
             value="notes"
-            className="mt-3 min-h-0 flex-1 overflow-y-auto hide-scrollbar"
+            className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
           >
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
-              <div className="mb-3 flex items-center gap-2">
-                <NotebookPen className="size-4 text-primary" />
-                <p className="text-sm font-bold">Нотатки</p>
+            <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <AlertCircle className="size-3.5" />
+                </span>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-primary">
+                  Протипоказання
+                </p>
               </div>
-              {client.notes?.trim() ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {client.notes}
+              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-foreground">
+                {client.notes?.trim()
+                  ? client.notes
+                  : "Поки не додано. Заповнимо в наступному кроці атрибутів."}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex size-6 items-center justify-center rounded-full bg-emerald-600 text-white">
+                  <Target className="size-3.5" />
+                </span>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                  Ціль
                 </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Нотаток поки немає. Редагування додамо, коли узгодимо атрибути
-                  вкладки.
-                </p>
-              )}
+              </div>
+              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-foreground">
+                {client.goal?.trim()
+                  ? client.goal
+                  : "Поки не додано. Заповнимо в наступному кроці атрибутів."}
+              </p>
             </div>
           </TabsContent>
         </Tabs>

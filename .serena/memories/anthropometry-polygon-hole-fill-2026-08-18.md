@@ -1,0 +1,1 @@
+Right-side measurement buttons in BodyMeasurementsCard do not grow on select. Active state is color only (`text-primary` + `bg-primary/10`). Font stays `text-xs sm:text-sm`. No font-size transition.

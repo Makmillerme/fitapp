@@ -98,12 +98,10 @@ export async function updateAppointmentStatus(
       const client = await tx.contact.findUnique({
         where: { id: appointment.clientId },
       });
-      if (client && client.sessionBalance <= 1) {
+      if (client && client.sessionBalance <= 0) {
         await tx.contact.update({
           where: { id: client.id },
-          data: {
-            status: client.sessionBalance - 1 <= 0 ? "DEBT" : client.status,
-          },
+          data: { status: "DEBT" },
         });
       }
     }

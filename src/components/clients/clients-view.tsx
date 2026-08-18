@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertCircle,
   MessageSquare,
   Phone,
   Search,
@@ -62,6 +61,41 @@ type Props = {
 };
 
 type Filter = "ACTIVE" | "DEBT" | "PAUSED" | "ALL";
+
+function sessionWord(count: number): string {
+  const n = Math.abs(count);
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "заняття";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "заняття";
+  return "занять";
+}
+
+type BalanceTone = "ok" | "warn" | "debt";
+
+function balanceTone(count: number): BalanceTone {
+  if (count > 1) return "ok";
+  if (count === 1) return "warn";
+  return "debt";
+}
+
+const TONE_DOT: Record<BalanceTone, string> = {
+  ok: "bg-emerald-600",
+  warn: "bg-amber-400",
+  debt: "bg-primary",
+};
+
+const TONE_BAR: Record<BalanceTone, string> = {
+  ok: "border-l-emerald-600",
+  warn: "border-l-amber-400",
+  debt: "border-l-primary",
+};
+
+const TONE_LABEL: Record<BalanceTone, string> = {
+  ok: "Запас занять",
+  warn: "Останнє заняття",
+  debt: "Борг занять",
+};
 
 export function ClientsView({ clients, eligibleContacts, counts }: Props) {
   const [query, setQuery] = useState("");
@@ -229,7 +263,7 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
         {filtered.map((client) => {
           const name = `${client.firstName} ${client.lastName ?? ""}`.trim();
           const initial = client.firstName.charAt(0).toUpperCase();
-          const isDebt = client.status === "DEBT" || client.sessionBalance <= 1;
+          const tone = balanceTone(client.sessionBalance);
           const telHref = client.phone
             ? `tel:${client.phone.replace(/\s+/g, "")}`
             : undefined;
@@ -237,14 +271,14 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
             <div
               key={client.id}
               className={cn(
-                "flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card",
-                isDebt && "border-l-[3px] border-l-primary",
+                "flex items-center gap-3 rounded-2xl border-l-[3px] bg-white p-4 shadow-card",
+                TONE_BAR[tone],
               )}
             >
               <button
                 type="button"
                 onClick={() => setCardClientId(client.id)}
-                className="flex min-w-0 flex-1 items-center gap-4 text-left transition-transform active:scale-[0.99]"
+                className="flex min-w-0 flex-1 items-center gap-3 text-left transition-transform active:scale-[0.99]"
               >
                 <Avatar className="size-12 shrink-0">
                   {client.photoUrl ? (
@@ -256,17 +290,15 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-base font-bold">{name}</h3>
-                  <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
-                    <span>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <span className="min-w-0 truncate">
                       Залишок {client.sessionBalance}{" "}
-                      {client.sessionBalance === 1 ? "заняття" : "занять"}
+                      {sessionWord(client.sessionBalance)}
                     </span>
-                    {isDebt ? (
-                      <span className="inline-flex items-center gap-0.5 font-bold uppercase text-primary">
-                        <AlertCircle className="size-3 fill-current" />
-                        Оплата
-                      </span>
-                    ) : null}
+                    <span
+                      className={cn("size-2 shrink-0 rounded-full", TONE_DOT[tone])}
+                      aria-label={TONE_LABEL[tone]}
+                    />
                   </p>
                 </div>
               </button>
@@ -528,6 +560,26 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
         open={cardClientId != null}
         onOpenChange={(open) => {
           if (!open) setCardClientId(null);
+        }}
+        onClientPatched={(patch) => {
+          const existing = clientItems.find((item) => item.id === patch.id);
+          if (!existing) return;
+          const nextStatus = patch.status as ClientListItem["status"];
+          if (
+            nextStatus !== "ACTIVE" &&
+            nextStatus !== "DEBT" &&
+            nextStatus !== "PAUSED"
+          ) {
+            return;
+          }
+          upsertClient(
+            {
+              ...existing,
+              sessionBalance: patch.sessionBalance,
+              status: nextStatus,
+            },
+            existing.status,
+          );
         }}
       />
     </div>

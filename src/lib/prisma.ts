@@ -34,8 +34,17 @@ function createPrismaClient() {
   });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+function getPrismaClient() {
+  if (process.env.NODE_ENV === "production") {
+    globalForPrisma.prisma ??= createPrismaClient();
+    return globalForPrisma.prisma;
+  }
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+  // Recreate after HMR / `prisma generate` so the singleton does not keep
+  // a client compiled against the previous schema (e.g. missing shoulderCm).
+  const client = createPrismaClient();
+  globalForPrisma.prisma = client;
+  return client;
 }
+
+export const prisma = getPrismaClient();

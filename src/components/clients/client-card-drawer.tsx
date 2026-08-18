@@ -25,6 +25,8 @@ type DetailPayload = {
     gender: "MALE" | "FEMALE" | "OTHER" | null;
     sessionBalance: number;
     status: string;
+    telegramId: string | null;
+    tag: string | null;
   };
   latestMeasurement: {
     measuredAt: string | null;
@@ -33,6 +35,8 @@ type DetailPayload = {
     waistCm: number | null;
     hipsCm: number | null;
     bicepsCm: number | null;
+    shoulderCm: number | null;
+    forearmCm: number | null;
     thighCm: number | null;
     calfCm: number | null;
     heightCm: number | null;
@@ -53,13 +57,25 @@ type DetailPayload = {
   }>;
 };
 
+type ClientBalancePatch = {
+  id: string;
+  sessionBalance: number;
+  status: string;
+};
+
 type Props = {
   clientId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onClientPatched?: (patch: ClientBalancePatch) => void;
 };
 
-export function ClientCardDrawer({ clientId, open, onOpenChange }: Props) {
+export function ClientCardDrawer({
+  clientId,
+  open,
+  onOpenChange,
+  onClientPatched,
+}: Props) {
   const [detail, setDetail] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +118,10 @@ export function ClientCardDrawer({ clientId, open, onOpenChange }: Props) {
             gender: result.client.gender,
             sessionBalance: result.client.sessionBalance,
             status: result.client.status,
+            telegramId: result.client.telegramId
+              ? String(result.client.telegramId)
+              : null,
+            tag: result.client.tag,
           },
           appointments: result.appointments.map((a) => ({
             id: a.id,
@@ -127,6 +147,8 @@ export function ClientCardDrawer({ clientId, open, onOpenChange }: Props) {
                 waistCm: result.latestMeasurement.waistCm,
                 hipsCm: result.latestMeasurement.hipsCm,
                 bicepsCm: result.latestMeasurement.bicepsCm,
+                shoulderCm: result.latestMeasurement.shoulderCm,
+                forearmCm: result.latestMeasurement.forearmCm,
                 thighCm: result.latestMeasurement.thighCm,
                 calfCm: result.latestMeasurement.calfCm,
                 heightCm: result.latestMeasurement.heightCm,
@@ -180,6 +202,37 @@ export function ClientCardDrawer({ clientId, open, onOpenChange }: Props) {
             appointments={detail.appointments}
             logs={detail.logs}
             latestMeasurement={detail.latestMeasurement}
+            onClientPatched={(patch) => {
+              setDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      client: {
+                        ...prev.client,
+                        sessionBalance: patch.sessionBalance,
+                        status: patch.status,
+                      },
+                    }
+                  : prev,
+              );
+              onClientPatched?.(patch);
+            }}
+            onMeasurementsSaved={(patch) => {
+              setDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      client: {
+                        ...prev.client,
+                        heightCm: patch.heightCm,
+                        weightKg: patch.weightKg,
+                      },
+                      latestMeasurement:
+                        patch.latestMeasurement ?? prev.latestMeasurement,
+                    }
+                  : prev,
+              );
+            }}
           />
         ) : null}
       </DrawerContent>

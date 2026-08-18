@@ -42,12 +42,24 @@ const updateClientGeneralSchema = z.object({
   heightCm: z.number().positive().max(260).nullable().optional(),
   weightKg: z.number().positive().max(500).nullable().optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).nullable().optional(),
+  tag: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(
+      (value) => !value || /^[a-z0-9_]{3,24}$/.test(value),
+      "Тег: 3-24 символи (a-z, 0-9, _)",
+    )
+    .nullable()
+    .optional(),
   measuredAt: z.coerce.date().nullable().optional(),
   neckCm: z.number().positive().max(120).nullable().optional(),
   chestCm: z.number().positive().max(220).nullable().optional(),
   waistCm: z.number().positive().max(220).nullable().optional(),
   hipsCm: z.number().positive().max(220).nullable().optional(),
   bicepsCm: z.number().positive().max(90).nullable().optional(),
+  shoulderCm: z.number().positive().max(180).nullable().optional(),
+  forearmCm: z.number().positive().max(80).nullable().optional(),
   thighCm: z.number().positive().max(150).nullable().optional(),
   calfCm: z.number().positive().max(90).nullable().optional(),
   measurementHeightCm: z.number().positive().max(260).nullable().optional(),
@@ -151,7 +163,7 @@ export async function getClientDetail(clientId: string) {
     }),
     prisma.contactMeasurement.findFirst({
       where: { contactId: clientId },
-      orderBy: { measuredAt: "desc" },
+      orderBy: [{ measuredAt: "desc" }, { id: "desc" }],
     }),
   ]);
 
@@ -166,9 +178,9 @@ export async function updateClientBalance(clientId: string, delta: number) {
   });
   if (!client) throw new Error("Клієнта не знайдено");
 
-  const nextBalance = Math.max(0, client.sessionBalance + delta);
+  const nextBalance = client.sessionBalance + delta;
   const nextStatus =
-    nextBalance === 0
+    nextBalance <= 0
       ? "DEBT"
       : client.status === "DEBT" && nextBalance > 0
         ? "ACTIVE"
@@ -282,12 +294,15 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
     heightCm,
     weightKg,
     gender,
+    tag,
     measuredAt,
     neckCm,
     chestCm,
     waistCm,
     hipsCm,
     bicepsCm,
+    shoulderCm,
+    forearmCm,
     thighCm,
     calfCm,
     measurementHeightCm,
@@ -299,8 +314,10 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
   if (!client) throw new Error("Клієнта не знайдено");
 
   const normalizedPhone = phone == null ? phone : phone.trim() ? parsePhone(phone) : null;
+  const normalizedTag = tag == null ? tag : tag.trim() ? tag.toLowerCase() : null;
 
   if (normalizedPhone) {
+    assertPhoneNotTrainer(admin, normalizedPhone);
     const duplicate = await prisma.contact.findFirst({
       where: {
         trainerId: admin.id,
@@ -311,6 +328,16 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
     });
     if (duplicate) {
       throw new Error(CONTACT_PHONE_EXISTS_MESSAGE);
+    }
+  }
+
+  if (normalizedTag) {
+    const taken = await prisma.contact.findFirst({
+      where: { tag: normalizedTag, id: { not: clientId } },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new Error("Цей тег уже зайнятий. Спробуйте інший.");
     }
   }
 
@@ -326,6 +353,7 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
       ...(heightCm !== undefined ? { heightCm } : {}),
       ...(weightKg !== undefined ? { weightKg } : {}),
       ...(gender !== undefined ? { gender } : {}),
+      ...(normalizedTag !== undefined ? { tag: normalizedTag } : {}),
     },
   });
 
@@ -335,6 +363,8 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
     waistCm,
     hipsCm,
     bicepsCm,
+    shoulderCm,
+    forearmCm,
     thighCm,
     calfCm,
     measurementHeightCm,
@@ -351,6 +381,8 @@ export async function upsertClientGeneral(input: z.input<typeof updateClientGene
         waistCm: waistCm ?? null,
         hipsCm: hipsCm ?? null,
         bicepsCm: bicepsCm ?? null,
+        shoulderCm: shoulderCm ?? null,
+        forearmCm: forearmCm ?? null,
         thighCm: thighCm ?? null,
         calfCm: calfCm ?? null,
         heightCm: measurementHeightCm ?? null,

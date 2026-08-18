@@ -259,6 +259,8 @@ model ContactMeasurement {
   waistCm    Float?
   hipsCm     Float?
   bicepsCm   Float?
+  shoulderCm Float?
+  forearmCm  Float?
   thighCm    Float?
   calfCm     Float?
   heightCm   Float?
