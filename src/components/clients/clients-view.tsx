@@ -223,7 +223,7 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
         actions={
           <button
             type="button"
-            className="flex size-8 items-center justify-center rounded-full bg-white text-foreground shadow-card"
+            className="flex size-9 items-center justify-center rounded-full bg-white text-foreground shadow-card"
             aria-label="Фільтри"
           >
             <SlidersHorizontal className="size-4" />
@@ -259,7 +259,8 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
         ))}
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto hide-scrollbar p-5">
+      <div className="flex-1 overflow-y-auto hide-scrollbar p-5">
+        <div className="space-y-3 p-1">
         {filtered.map((client) => {
           const name = `${client.firstName} ${client.lastName ?? ""}`.trim();
           const initial = client.firstName.charAt(0).toUpperCase();
@@ -346,6 +347,7 @@ export function ClientsView({ clients, eligibleContacts, counts }: Props) {
         ) : null}
 
         <div className="h-8" />
+        </div>
       </div>
 
       <Dialog

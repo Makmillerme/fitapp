@@ -34,11 +34,11 @@ export function TrainerHeader({
     >
       <div
         className={cn(
-          "mb-4 flex items-center justify-between gap-3",
+          "mb-4 flex h-9 items-center justify-between gap-3",
           contentClassName,
         )}
       >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-9 min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={openMenu}
@@ -50,19 +50,25 @@ export function TrainerHeader({
           >
             <Menu className="size-4" />
           </button>
-          <div className="min-w-0">
+          <div className="flex h-9 min-w-0 items-center">
             {typeof title === "string" ? (
-              <h1 className="truncate text-2xl font-bold tracking-tight">{title}</h1>
+              <h1 className="truncate text-2xl font-bold leading-9 tracking-tight">
+                {title}
+              </h1>
             ) : (
               title
             )}
-            {subtitle ? (
-              <div className="text-xs font-medium text-muted-foreground">{subtitle}</div>
-            ) : null}
           </div>
         </div>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        {actions ? (
+          <div className="flex h-9 shrink-0 items-center gap-2">{actions}</div>
+        ) : null}
       </div>
+      {subtitle ? (
+        <div className="mb-3 pl-12 text-xs font-medium text-muted-foreground">
+          {subtitle}
+        </div>
+      ) : null}
       {children}
     </header>
   );

@@ -24,6 +24,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  readContactChatCache,
+  writeContactChatCache,
+} from "@/lib/contacts/contact-chat-session-cache";
 
 type Props = {
   open: boolean;
@@ -48,12 +52,21 @@ export function ContactChatDialog({
     if (!open) return;
 
     let cancelled = false;
-    setLoading(true);
+    const cached = readContactChatCache(contactId);
+    if (cached) {
+      setMessages(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setMessages([]);
+    }
     setInput("");
 
     void listContactMessages(contactId)
       .then((items) => {
-        if (!cancelled) setMessages(items);
+        if (cancelled) return;
+        setMessages(items);
+        writeContactChatCache(contactId, items);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -85,7 +98,11 @@ export function ContactChatDialog({
     startTransition(async () => {
       try {
         const message = await sendContactMessage({ contactId, body });
-        setMessages((prev) => [...prev, message]);
+        setMessages((prev) => {
+          const next = [...prev, message];
+          queueMicrotask(() => writeContactChatCache(contactId, next));
+          return next;
+        });
         setInput("");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Не вдалося надіслати");

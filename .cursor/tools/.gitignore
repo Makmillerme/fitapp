@@ -1,0 +1,3 @@
+# Portable Android platform-tools (adb). Downloaded locally, not part of the app.
+platform-tools/
+*.zip

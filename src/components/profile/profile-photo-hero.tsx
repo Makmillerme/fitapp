@@ -297,7 +297,7 @@ export function ProfilePhotoHero({
           />
           <div className="inline-flex min-w-0 max-w-full items-center gap-2">
             <h2
-              className="truncate font-semibold"
+              className="truncate font-semibold leading-none"
               style={{
                 fontSize: "clamp(28px, 6.5vw, 42px)",
                 color: nameColor,
@@ -308,7 +308,7 @@ export function ProfilePhotoHero({
             <button
               type="button"
               onClick={onEditName}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-none hover:bg-white/10"
+              className="inline-flex size-8 shrink-0 -translate-y-px items-center justify-center self-center rounded-full transition-none hover:bg-white/10"
               aria-label="Редагувати імʼя"
               style={{
                 color: mutedColor,

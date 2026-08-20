@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Drawer,
   DrawerContent,
@@ -8,6 +8,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { ClientDetailView } from "@/components/clients/client-detail-view";
+import type { ClientNoteDto } from "@/components/clients/client-note-card";
 import { getClientDetail } from "@/lib/actions/clients";
 
 type DetailPayload = {
@@ -55,6 +56,7 @@ type DetailPayload = {
     weight: number | null;
     exercise: { name: string } | null;
   }>;
+  clientNotes: ClientNoteDto[];
 };
 
 type ClientBalancePatch = {
@@ -79,13 +81,11 @@ export function ClientCardDrawer({
   const [detail, setDetail] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   useEffect(() => {
     if (!open || !clientId) {
-      if (!open) {
-        setDetail(null);
-        setError(null);
-      }
       return;
     }
 
@@ -154,6 +154,15 @@ export function ClientCardDrawer({
                 heightCm: result.latestMeasurement.heightCm,
               }
             : null,
+          clientNotes: result.clientNotes.map((note) => ({
+            id: note.id,
+            kind: note.kind,
+            templateKey: note.templateKey,
+            title: note.title,
+            body: note.body,
+            createdAt: new Date(note.createdAt).toISOString(),
+            updatedAt: new Date(note.updatedAt).toISOString(),
+          })),
         });
       })
       .catch((e) => {
@@ -174,10 +183,17 @@ export function ClientCardDrawer({
     <Drawer
       open={open}
       onOpenChange={onOpenChange}
+      onOpenChangeComplete={(nextOpen) => {
+        if (!nextOpen && !openRef.current) {
+          setDetail(null);
+          setError(null);
+          setLoading(false);
+        }
+      }}
       showSwipeHandle
       swipeDirection="down"
     >
-      <DrawerContent className="h-[74dvh] max-h-[74dvh] rounded-t-3xl border-t border-border bg-popover pb-safe">
+      <DrawerContent className="h-[88dvh] max-h-[88dvh] rounded-t-3xl border-t border-border bg-popover pb-safe">
         <DrawerTitle className="sr-only">Картка клієнта</DrawerTitle>
         <DrawerDescription className="sr-only">
           Огляд, прогрес, історія та нотатки клієнта
@@ -200,7 +216,7 @@ export function ClientCardDrawer({
           <ClientDetailView
             client={detail.client}
             appointments={detail.appointments}
-            logs={detail.logs}
+            clientNotes={detail.clientNotes}
             latestMeasurement={detail.latestMeasurement}
             onClientPatched={(patch) => {
               setDetail((prev) =>
@@ -232,6 +248,28 @@ export function ClientCardDrawer({
                     }
                   : prev,
               );
+            }}
+            onNotesChanged={(nextNotes) => {
+              setDetail((prev) => {
+                if (!prev) return prev;
+                const goal = nextNotes.find((n) => n.templateKey === "goal");
+                const contra = nextNotes.find(
+                  (n) => n.templateKey === "contraindications",
+                );
+                return {
+                  ...prev,
+                  clientNotes: nextNotes,
+                  client: {
+                    ...prev.client,
+                    goal: goal
+                      ? goal.body.trim() || null
+                      : prev.client.goal,
+                    notes: contra
+                      ? contra.body.trim() || null
+                      : prev.client.notes,
+                  },
+                };
+              });
             }}
           />
         ) : null}

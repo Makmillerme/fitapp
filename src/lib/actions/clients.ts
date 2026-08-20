@@ -17,6 +17,7 @@ import {
   assertPhoneNotTrainer,
   excludeSelfContactWhere,
 } from "@/lib/contacts/self-contact";
+import { ensureClientNoteTemplates } from "@/lib/notes/ensure";
 
 const createClientSchema = z.object({
   firstName: z.string().trim().min(1, "Вкажіть імʼя"),
@@ -148,7 +149,9 @@ export async function getClientDetail(clientId: string) {
   });
   if (!client) return null;
 
-  const [appointments, logs, latestMeasurement] = await Promise.all([
+  await ensureClientNoteTemplates(clientId);
+
+  const [appointments, logs, latestMeasurement, clientNotes] = await Promise.all([
     prisma.appointment.findMany({
       where: { clientId, trainerId: admin.id },
       include: { program: true },
@@ -165,9 +168,13 @@ export async function getClientDetail(clientId: string) {
       where: { contactId: clientId },
       orderBy: [{ measuredAt: "desc" }, { id: "desc" }],
     }),
+    prisma.contactNote.findMany({
+      where: { contactId: clientId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    }),
   ]);
 
-  return { client, appointments, logs, latestMeasurement };
+  return { client, appointments, logs, latestMeasurement, clientNotes };
 }
 
 export async function updateClientBalance(clientId: string, delta: number) {
@@ -238,6 +245,8 @@ export async function createClient(input: z.input<typeof createClientSchema>) {
       },
     });
 
+    await ensureClientNoteTemplates(client.id);
+
     revalidatePath("/clients");
     revalidatePath("/contacts");
     return client;
@@ -272,6 +281,8 @@ export async function promoteContactToClient(contactId: string) {
       sessionBalance: 0,
     },
   });
+
+  await ensureClientNoteTemplates(updated.id);
 
   revalidatePath("/clients");
   revalidatePath("/contacts");

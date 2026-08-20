@@ -41,6 +41,11 @@ enum Gender {
   OTHER
 }
 
+enum ContactNoteKind {
+  PROGRESS
+  GENERAL
+}
+
 model User {
   id         String   @id @default(cuid())
   telegramId BigInt   @unique
@@ -92,6 +97,7 @@ model Contact {
   conversations  ContactConversation[]
   measurements   ContactMeasurement[]
   photos         ContactPhoto[]
+  clientNotes    ContactNote[]
 
   @@unique([trainerId, phone])
   @@index([trainerId, isClient])
@@ -268,6 +274,21 @@ model ContactMeasurement {
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId, measuredAt])
+}
+
+model ContactNote {
+  id          String          @id @default(cuid())
+  contactId   String
+  kind        ContactNoteKind
+  templateKey String?
+  title       String
+  body        String          @default("")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, kind, updatedAt])
 }
 
 model ContactPhoto {

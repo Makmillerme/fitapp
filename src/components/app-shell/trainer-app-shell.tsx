@@ -37,7 +37,7 @@ export function TrainerAppShell({ children }: TrainerAppShellProps) {
       <div
         data-app-shell
         className={cn(
-          "relative flex h-[100dvh] w-full min-w-0 flex-col overflow-hidden bg-[#FAFAFA] [transform:translateZ(0)]",
+          "relative flex h-[100dvh] w-full min-w-0 flex-col overflow-hidden overscroll-y-none bg-[#FAFAFA] [transform:translateZ(0)]",
           process.env.NODE_ENV === "development" &&
             "border-x border-[#C4C4C8] shadow-[0_0_0_1px_rgba(0,0,0,0.04)]",
         )}

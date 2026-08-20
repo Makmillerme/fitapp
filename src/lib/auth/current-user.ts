@@ -1,16 +1,21 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { User, UserRole } from "@/generated/prisma/client";
-import { prisma } from "@/lib/prisma";
+import { withPgRetry } from "@/lib/prisma";
 import { getSessionFromCookies } from "@/lib/auth/session";
 
-export async function getCurrentUser(): Promise<User | null> {
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   const session = await getSessionFromCookies();
   if (!session) return null;
 
-  return prisma.user.findUnique({
-    where: { id: session.userId },
-  });
-}
+  return withPgRetry(
+    (prisma) =>
+      prisma.user.findUnique({
+        where: { id: session.userId },
+      }),
+    "getCurrentUser.findUnique",
+  );
+});
 
 export async function requireUser(): Promise<User> {
   const user = await getCurrentUser();

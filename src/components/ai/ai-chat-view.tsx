@@ -22,12 +22,16 @@ import { ChatSettingsSheet } from "@/components/ai/chat-settings-sheet";
 import { TrainerHeader } from "@/components/nav/trainer-header";
 import { useActionDialog } from "@/hooks/use-action-dialog";
 import { toast } from "sonner";
+import {
+  readAiChatSession,
+  seedAiChatSessionIfEmpty,
+  writeAiChatSession,
+  type AiChatMessage,
+} from "@/lib/ai/ai-chat-session-cache";
 
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
+type ChatMessage = AiChatMessage;
+
+const STICKY_SCROLL_PX = 80;
 
 type Props = {
   initialThreads: ChatThreadListItem[];
@@ -50,23 +54,30 @@ export function AiChatView({
   initialMessages = [],
   initialThreadId = null,
 }: Props) {
-  const [threads, setThreads] = useState(initialThreads);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(
-    initialThreadId ?? initialThreads[0]?.id ?? null,
+  const ssrThreadId = initialThreadId ?? initialThreads[0]?.id ?? null;
+  const ssrModel = resolveChatModel(
+    initialThreads.find((t) => t.id === ssrThreadId)?.model ?? DEFAULT_CHAT_MODEL,
   );
-  const [model, setModel] = useState<ChatModelId>(
-    resolveChatModel(
-      initialThreads.find((t) => t.id === (initialThreadId ?? initialThreads[0]?.id))
-        ?.model ?? DEFAULT_CHAT_MODEL,
-    ),
-  );
-  const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    initialMessages.map((m) => ({
+  const boot = seedAiChatSessionIfEmpty({
+    threads: initialThreads,
+    activeThreadId: ssrThreadId,
+    model: ssrModel,
+    messages: initialMessages.map((m) => ({
       id: m.id,
       role: m.role,
       content: m.content,
     })),
+  });
+
+  const [threads, setThreads] = useState(boot.threads);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(
+    boot.activeThreadId,
   );
+  const [model, setModel] = useState<ChatModelId>(boot.model);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const tid = boot.activeThreadId;
+    return tid ? (boot.messagesByThread[tid] ?? []) : [];
+  });
   const [input, setInput] = useState("");
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -74,12 +85,26 @@ export function AiChatView({
   const [wantNewChat, setWantNewChat] = useActionDialog("new");
   const listRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const pinToBottomRef = useRef(true);
 
   const isBusy = streamingId !== null || loadingThread;
 
   useEffect(() => {
+    const prev = readAiChatSession();
+    writeAiChatSession({
+      threads,
+      activeThreadId,
+      model,
+      messagesByThread: {
+        ...(prev?.messagesByThread ?? {}),
+        ...(activeThreadId ? { [activeThreadId]: messages } : {}),
+      },
+    });
+  }, [threads, activeThreadId, model, messages]);
+
+  useEffect(() => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinToBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, streamingId]);
 
   useEffect(() => {
@@ -87,7 +112,14 @@ export function AiChatView({
   }, []);
 
   const loadThread = async (threadId: string) => {
-    setLoadingThread(true);
+    pinToBottomRef.current = true;
+    const cached = readAiChatSession()?.messagesByThread[threadId];
+    if (cached) {
+      setMessages(cached);
+      setLoadingThread(false);
+    } else {
+      setLoadingThread(true);
+    }
     try {
       const items = await getThreadMessages(threadId);
       setMessages(
@@ -108,6 +140,7 @@ export function AiChatView({
 
   const handleNewChat = async () => {
     abortRef.current?.abort();
+    pinToBottomRef.current = true;
     setStreamingId(null);
     try {
       const thread = await createChatThread(model);
@@ -176,6 +209,7 @@ export function AiChatView({
     if (!trimmed || isBusy) return;
 
     abortRef.current?.abort();
+    pinToBottomRef.current = true;
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -324,6 +358,12 @@ export function AiChatView({
       <div
         ref={listRef}
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto hide-scrollbar px-4 py-4"
+        onScroll={() => {
+          const el = listRef.current;
+          if (!el) return;
+          pinToBottomRef.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight <= STICKY_SCROLL_PX;
+        }}
       >
         {loadingThread ? (
           <div className="flex flex-1 flex-col gap-3 py-2" aria-busy="true">

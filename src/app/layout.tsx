@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
 import "./globals.css";
@@ -19,6 +19,13 @@ export const metadata: Metadata = {
     template: "%s | FitApp",
   },
   description: "CRM для тренерів — управління клієнтами",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

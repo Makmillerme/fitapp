@@ -3,13 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { uk } from "date-fns/locale";
-import { AlertCircle, Dumbbell, Target } from "lucide-react";
+import { AlertCircle, Dumbbell, Plus, Target } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BodyMeasurementsCard } from "@/components/clients/body-measurements-card";
 import type { MeasurementSavePatch } from "@/components/clients/measurement-edit-dialog";
+import {
+  ClientNoteCard,
+  createDraftNote,
+  isDraftNoteId,
+  type ClientNoteDto,
+} from "@/components/clients/client-note-card";
 import { SessionBalanceCard } from "@/components/clients/session-balance-card";
+import {
+  NOTE_TEMPLATE_CONTRA,
+  NOTE_TEMPLATE_GOAL,
+} from "@/lib/notes/templates";
 import { cn } from "@/lib/utils";
 
 const HISTORY_UI_PREVIEW = [
@@ -58,6 +69,7 @@ type Props = {
     status: string;
   }) => void;
   onMeasurementsSaved?: (patch: MeasurementSavePatch) => void;
+  onNotesChanged?: (notes: ClientNoteDto[]) => void;
   appointments: Array<{
     id: string;
     startAt: string;
@@ -65,13 +77,7 @@ type Props = {
     notes?: string | null;
     program: { name: string } | null;
   }>;
-  logs: Array<{
-    id: string;
-    createdAt: string;
-    notes: string | null;
-    weight: number | null;
-    exercise: { name: string } | null;
-  }>;
+  clientNotes: ClientNoteDto[];
   latestMeasurement: {
     measuredAt: string | null;
     neckCm: number | null;
@@ -131,23 +137,35 @@ function calculateAge(dateOfBirthIso: string | null): string {
   return age >= 0 ? `${age}` : "—";
 }
 
+function persistedNotes(list: ClientNoteDto[]) {
+  return list.filter((note) => !isDraftNoteId(note.id));
+}
+
 export function ClientDetailView({
   client,
   appointments,
-  logs,
+  clientNotes,
   latestMeasurement,
   onClientPatched,
   onMeasurementsSaved,
+  onNotesChanged,
 }: Props) {
   const name = `${client.firstName} ${client.lastName ?? ""}`.trim();
   const initial = client.firstName.charAt(0).toUpperCase();
   const telegramLabel = formatTelegram(client.telegramId, client.tag);
 
   const [status, setStatus] = useState(client.status);
+  const [notes, setNotes] = useState(clientNotes);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     setStatus(client.status);
   }, [client.id, client.status]);
+
+  useEffect(() => {
+    setNotes(clientNotes);
+    setEditingNoteId(null);
+  }, [client.id]);
 
   const statusLabel = STATUS_LABELS[status] ?? status;
 
@@ -165,25 +183,52 @@ export function ClientDetailView({
     return HISTORY_UI_PREVIEW.map((item) => ({ ...item }));
   }, [appointments]);
 
-  const strengthPreview = useMemo(() => {
-    const byExercise = new Map<
-      string,
-      { weight: number; createdAt: string }
-    >();
-    for (const log of logs) {
-      if (!log.exercise?.name || log.weight == null) continue;
-      const prev = byExercise.get(log.exercise.name);
-      if (!prev || new Date(log.createdAt) > new Date(prev.createdAt)) {
-        byExercise.set(log.exercise.name, {
-          weight: log.weight,
-          createdAt: log.createdAt,
-        });
-      }
+  const progressNotes = notes.filter((note) => note.kind === "PROGRESS");
+  const goalNote = notes.find((note) => note.templateKey === NOTE_TEMPLATE_GOAL);
+  const contraNote = notes.find(
+    (note) => note.templateKey === NOTE_TEMPLATE_CONTRA,
+  );
+  const generalNotes = notes.filter(
+    (note) => note.kind === "GENERAL" && !note.templateKey,
+  );
+
+  const startDraft = (kind: "PROGRESS" | "GENERAL") => {
+    const existingDraft = notes.find(
+      (note) => isDraftNoteId(note.id) && note.kind === kind,
+    );
+    if (existingDraft) {
+      setEditingNoteId(existingDraft.id);
+      return;
     }
-    return Array.from(byExercise.entries())
-      .slice(0, 4)
-      .map(([exercise, data]) => ({ exercise, ...data }));
-  }, [logs]);
+    const draft = createDraftNote(kind);
+    setNotes((prev) => [draft, ...prev]);
+    setEditingNoteId(draft.id);
+  };
+
+  const handleNoteSaved = (saved: ClientNoteDto, previousId: string) => {
+    const withoutPrev = notes.filter((note) => note.id !== previousId);
+    const exists = withoutPrev.some((note) => note.id === saved.id);
+    const next = exists
+      ? withoutPrev.map((note) => (note.id === saved.id ? saved : note))
+      : [saved, ...withoutPrev];
+    setNotes(next);
+    setEditingNoteId(null);
+    onNotesChanged?.(persistedNotes(next));
+  };
+
+  const handleNoteDeleted = (noteId: string) => {
+    const next = notes.filter((note) => note.id !== noteId);
+    setNotes(next);
+    setEditingNoteId((current) => (current === noteId ? null : current));
+    onNotesChanged?.(persistedNotes(next));
+  };
+
+  const handleCancel = (note: ClientNoteDto) => {
+    if (isDraftNoteId(note.id)) {
+      setNotes((prev) => prev.filter((item) => item.id !== note.id));
+    }
+    setEditingNoteId(null);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-popover">
@@ -250,8 +295,9 @@ export function ClientDetailView({
 
           <TabsContent
             value="overview"
-            className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y hide-scrollbar"
           >
+            <div className="space-y-3 p-1">
             <div className="rounded-2xl border border-border bg-card px-4 py-3 shadow-card">
               <p className="mb-1 text-sm font-bold text-foreground">Базова інформація</p>
               <dl className="divide-y divide-border">
@@ -300,12 +346,14 @@ export function ClientDetailView({
                 onClientPatched?.(patch);
               }}
             />
+            </div>
           </TabsContent>
 
           <TabsContent
             value="progress"
-            className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y hide-scrollbar"
           >
+            <div className="space-y-3 p-1">
             <BodyMeasurementsCard
               clientId={client.id}
               weightKg={client.weightKg}
@@ -327,36 +375,55 @@ export function ClientDetailView({
                   null,
               }}
             />
-            <p className="text-sm font-bold text-foreground">Силові (1RM максимум)</p>
-            {strengthPreview.length === 0 ? (
-              <div className="rounded-2xl border border-border bg-muted/60 p-5 text-sm text-muted-foreground">
-                Поки немає силових записів. Атрибути прогресу уточнимо окремо.
+            <div className="flex items-center justify-between gap-2 pr-0.5">
+              <p className="text-sm font-bold text-foreground">Прогрес</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                aria-label="Додати запис прогресу"
+                onClick={() => startDraft("PROGRESS")}
+              >
+                <Plus />
+              </Button>
+            </div>
+            {progressNotes.length === 0 ? (
+              <div className="flex flex-col items-start gap-3 rounded-2xl border border-border bg-muted/60 p-5">
+                <p className="text-sm text-muted-foreground">
+                  Поки немає записів. Додай назву і опис — жим, час WOD, повтори.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => startDraft("PROGRESS")}
+                >
+                  Додати запис
+                </Button>
               </div>
             ) : (
-              strengthPreview.map((item) => (
-                <div
-                  key={item.exercise}
-                  className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-card"
-                >
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground">
-                    <Dumbbell className="size-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold">{item.exercise}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Оновлено{" "}
-                      {format(new Date(item.createdAt), "d MMM", { locale: uk })}
-                    </p>
-                  </div>
-                  <p className="text-base font-bold">{item.weight} кг</p>
-                </div>
+              progressNotes.map((item) => (
+                <ClientNoteCard
+                  key={item.id}
+                  clientId={client.id}
+                  note={item}
+                  editing={editingNoteId === item.id}
+                  icon={<Dumbbell className="size-4" />}
+                  showDate={!isDraftNoteId(item.id)}
+                  onEdit={() => setEditingNoteId(item.id)}
+                  onCancel={() => handleCancel(item)}
+                  onSaved={handleNoteSaved}
+                  onDeleted={handleNoteDeleted}
+                />
               ))
             )}
+            </div>
           </TabsContent>
 
           <TabsContent
             value="history"
-            className="mt-3 min-h-0 flex-1 overflow-y-auto hide-scrollbar px-1"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y hide-scrollbar p-1"
           >
             <ol className="relative space-y-5 pl-11">
               <span
@@ -398,38 +465,63 @@ export function ClientDetailView({
 
           <TabsContent
             value="notes"
-            className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto hide-scrollbar"
+            className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y hide-scrollbar"
           >
-            <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <AlertCircle className="size-3.5" />
-                </span>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-primary">
-                  Протипоказання
-                </p>
-              </div>
-              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-foreground">
-                {client.notes?.trim()
-                  ? client.notes
-                  : "Поки не додано. Заповнимо в наступному кроці атрибутів."}
-              </p>
+            <div className="space-y-3 p-1">
+            <div className="flex items-center justify-between gap-2 pr-0.5">
+              <p className="text-sm font-bold text-foreground">Нотатки</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-xl"
+                aria-label="Додати нотатку"
+                onClick={() => startDraft("GENERAL")}
+              >
+                <Plus />
+              </Button>
             </div>
 
-            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex size-6 items-center justify-center rounded-full bg-emerald-600 text-white">
-                  <Target className="size-3.5" />
-                </span>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">
-                  Ціль
-                </p>
-              </div>
-              <p className="whitespace-pre-wrap text-sm font-semibold leading-relaxed text-foreground">
-                {client.goal?.trim()
-                  ? client.goal
-                  : "Поки не додано. Заповнимо в наступному кроці атрибутів."}
-              </p>
+            {contraNote ? (
+              <ClientNoteCard
+                clientId={client.id}
+                note={contraNote}
+                editing={editingNoteId === contraNote.id}
+                appearance="contra"
+                icon={<AlertCircle className="size-4 text-primary" />}
+                emptyHint="Поки не додано."
+                onEdit={() => setEditingNoteId(contraNote.id)}
+                onCancel={() => handleCancel(contraNote)}
+                onSaved={handleNoteSaved}
+              />
+            ) : null}
+
+            {goalNote ? (
+              <ClientNoteCard
+                clientId={client.id}
+                note={goalNote}
+                editing={editingNoteId === goalNote.id}
+                appearance="goal"
+                icon={<Target className="size-4 text-emerald-700" />}
+                emptyHint="Поки не додано."
+                onEdit={() => setEditingNoteId(goalNote.id)}
+                onCancel={() => handleCancel(goalNote)}
+                onSaved={handleNoteSaved}
+              />
+            ) : null}
+
+            {generalNotes.map((item) => (
+              <ClientNoteCard
+                key={item.id}
+                clientId={client.id}
+                note={item}
+                editing={editingNoteId === item.id}
+                onEdit={() => setEditingNoteId(item.id)}
+                onCancel={() => handleCancel(item)}
+                onSaved={handleNoteSaved}
+                onDeleted={handleNoteDeleted}
+              />
+            ))}
             </div>
           </TabsContent>
         </Tabs>

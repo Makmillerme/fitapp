@@ -31,13 +31,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/schedule/:path*",
-    "/clients/:path*",
-    "/programs/:path*",
-    "/ai/:path*",
-    "/apps/:path*",
-    "/contacts/:path*",
-    "/profile/:path*",
-    "/settings/:path*",
+    "/((?!api|_next/static|_next/image|_next/webpack-hmr|favicon.ico).*)",
   ],
 };

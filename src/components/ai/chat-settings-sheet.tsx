@@ -72,13 +72,21 @@ export function ChatSettingsSheet({
               onValueChange={(v) => {
                 if (v) onModelChange(v as ChatModelId);
               }}
+              items={CHAT_MODELS.map((item) => ({
+                value: item.id,
+                label: item.label,
+              }))}
             >
               <SelectTrigger id="chat-model" className="w-full rounded-xl">
-                <SelectValue />
+                <SelectValue>
+                  {(value: string | null) =>
+                    CHAT_MODELS.find((item) => item.id === value)?.label ?? value
+                  }
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {CHAT_MODELS.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
+                  <SelectItem key={item.id} value={item.id} label={item.label}>
                     {item.label}
                   </SelectItem>
                 ))}

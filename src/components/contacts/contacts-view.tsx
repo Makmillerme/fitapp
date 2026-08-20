@@ -72,7 +72,7 @@ export function ContactsView({ conversations, contacts: initialContacts }: Props
           <Button
             type="button"
             variant="outline"
-            className="rounded-xl border-gray-100 bg-white shadow-card"
+            className="h-9 rounded-xl border-gray-100 bg-white shadow-card"
             onClick={() => setContactsOpen(true)}
           >
             <Users className="size-4" />
@@ -81,7 +81,8 @@ export function ContactsView({ conversations, contacts: initialContacts }: Props
         }
       />
 
-      <div className="flex-1 space-y-3 overflow-y-auto hide-scrollbar p-5">
+      <div className="flex-1 overflow-y-auto hide-scrollbar p-5">
+        <div className="space-y-3 p-1">
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -126,6 +127,7 @@ export function ContactsView({ conversations, contacts: initialContacts }: Props
           })
         )}
         <div className="h-8" />
+        </div>
       </div>
 
       <Dialog open={contactsOpen} onOpenChange={setContactsOpen}>
@@ -150,7 +152,8 @@ export function ContactsView({ conversations, contacts: initialContacts }: Props
               Додати контакт
             </Button>
           </div>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto hide-scrollbar p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto hide-scrollbar p-3">
+            <div className="space-y-2 p-1">
             {filteredContacts.length === 0 ? (
               <p className="px-2 py-6 text-center text-sm text-muted-foreground">
                 Контактів не знайдено
@@ -189,6 +192,7 @@ export function ContactsView({ conversations, contacts: initialContacts }: Props
                 );
               })
             )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -363,6 +364,24 @@ export function ProfileView({ profile }: Props) {
     settleTo(target);
   };
 
+  const onProfileTouchMoveRef = useRef(onProfileTouchMove);
+  onProfileTouchMoveRef.current = onProfileTouchMove;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onMove = (event: globalThis.TouchEvent) => {
+      onProfileTouchMoveRef.current(
+        event as unknown as TouchEvent,
+      );
+      if (axisLock.current === "v") {
+        event.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []);
+
   const p = expandProgress;
   // Full-bleed square = track width (no desktop cap).
   const expandedSize = trackWidth > 0 ? trackWidth : 0;
@@ -501,7 +520,7 @@ export function ProfileView({ profile }: Props) {
               <span className="sr-only">Профіль</span>
             ) : (
               <h1
-                className="truncate text-2xl font-bold tracking-tight"
+                className="truncate text-2xl font-bold leading-9 tracking-tight"
                 style={{
                   opacity: Math.max(0, 1 - p * 2.2),
                   pointerEvents: "none",
@@ -517,10 +536,9 @@ export function ProfileView({ profile }: Props) {
 
       <div
         ref={scrollRef}
-        className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 pb-8 sm:gap-4 sm:px-5"
+        className="flex flex-1 flex-col gap-3 overflow-y-auto overscroll-y-none px-3 pb-8 sm:gap-4 sm:px-5"
         style={{ paddingTop: scrollPadTop }}
         onTouchStart={onProfileTouchStart}
-        onTouchMove={onProfileTouchMove}
         onTouchEnd={onProfileTouchEnd}
         onTouchCancel={onProfileTouchEnd}
       >
@@ -553,7 +571,7 @@ export function ProfileView({ profile }: Props) {
           ref={fileInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
-          className="hidden"
+          className="sr-only"
           onChange={(e) => void onPhotoSelected(e.target.files?.[0])}
         />
 

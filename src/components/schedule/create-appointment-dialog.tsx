@@ -19,15 +19,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import type { ScheduleAppointment } from "@/components/schedule/schedule-appointment";
 
 type ClientOption = { id: string; firstName: string; lastName: string | null };
+
+function clientLabel(client: ClientOption) {
+  return `${client.firstName} ${client.lastName ?? ""}`.trim();
+}
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clients: ClientOption[];
   defaultDate: Date;
-  onCreated?: () => void;
+  onCreated?: (appointment: ScheduleAppointment) => void;
 };
 
 export function CreateAppointmentDialog({
@@ -54,7 +59,7 @@ export function CreateAppointmentDialog({
 
     startTransition(async () => {
       try {
-        await createAppointment({
+        const created = await createAppointment({
           clientId,
           startAt: startAt.toISOString(),
           endAt: endAt.toISOString(),
@@ -62,7 +67,7 @@ export function CreateAppointmentDialog({
         });
         toast.success("Запис створено");
         onOpenChange(false);
-        onCreated?.();
+        onCreated?.(created);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Помилка");
       }
@@ -78,16 +83,31 @@ export function CreateAppointmentDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-bold text-muted-foreground">Клієнт</label>
-            <Select value={clientId} onValueChange={(v) => setClientId(v ?? "")}>
+            <Select
+              value={clientId || null}
+              onValueChange={(v) => setClientId(v ?? "")}
+              items={clients.map((c) => ({
+                value: c.id,
+                label: clientLabel(c),
+              }))}
+            >
               <SelectTrigger className="w-full rounded-xl">
-                <SelectValue placeholder="Оберіть клієнта" />
+                <SelectValue placeholder="Оберіть клієнта">
+                  {(value: string | null) => {
+                    const selected = clients.find((c) => c.id === value);
+                    return selected ? clientLabel(selected) : "Оберіть клієнта";
+                  }}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName ?? ""}
-                  </SelectItem>
-                ))}
+                {clients.map((c) => {
+                  const name = clientLabel(c);
+                  return (
+                    <SelectItem key={c.id} value={c.id} label={name}>
+                      {name}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

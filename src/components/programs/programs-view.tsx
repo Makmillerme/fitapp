@@ -57,7 +57,7 @@ export function ProgramsView({ programs }: Props) {
         actions={
           <button
             type="button"
-            className="flex size-8 items-center justify-center rounded-full bg-white text-foreground shadow-card"
+            className="flex size-9 items-center justify-center rounded-full bg-white text-foreground shadow-card"
             aria-label="Фільтр"
           >
             <Filter className="size-4" />

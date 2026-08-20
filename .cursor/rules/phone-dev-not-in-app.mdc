@@ -1,0 +1,9 @@
+# Phone preview — не в застосунку
+
+Тест на реальному Android до публічного релізу робиться **поза** продуктом.
+
+- Не додавати `dev:lan` / `adb:reverse` у `package.json`.
+- Не змінювати `next.config.ts` / `src/` заради LAN/ADB.
+- Інструмент: команда `/phone-dev` і скрипт `.cursor/scripts/phone-dev.ps1`.
+- Не створювати MCP-сервер для `adb reverse`.
+- Не запускати `npm run dev` без явного прохання користувача.
